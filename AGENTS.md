@@ -1,25 +1,12 @@
-# AGENTS.md — Recicla+ (v0)
+# Recicla+
 
-Plataforma de coleta seletiva para municípios de MS. Moradores têm QR pessoal; coletores registram entregas; gestores acompanham o painel. Preserve a identidade visual, o mapa Leaflet, o gráfico Chart.js e os temas existentes.
+O usuário autorizou a substituição do Blob por Neon/PostgreSQL e a reformulação completa com Vue. Mantenha Vue 3, TypeScript, Vite, dependências fixadas e o histórico deste repositório. A preferência atual é entregar na `main` após as verificações.
 
-## Telas
-- `/`: painel do gestor, web 16:9, cadastros de moradores, QR, equipe e pontos.
-- `/coletor`: aplicativo mobile 9:16, PWA com fila offline e sincronização automática.
-
-## Bibliotecas
-Vue 3.5.13, Tailwind 4.1.13, html5-qrcode 2.3.8, Leaflet 1.9.4, Chart.js 4.4.8 e QRious 4.0.2 via CDN. Backend Node 24, SDK oficial `@vercel/blob` e `jose`.
-
-## Armazenamento
-Somente Vercel Blob **privado**, com documentos JSON acessados pelo backend `/api/recicla`. Não adicionar Dexie, IndexedDB de entregas, Postgres ou serviços externos de banco. `localStorage` é apenas cache de cadastros, recibos e fila temporária de envio, separada por usuário. A API é a autoridade dos dados; o painel só soma registros recebidos no servidor.
-
-## Regras
-- Não reinventar mapa, gráfico, leitor/gerador de QR ou armazenamento remoto.
-- Segredos exclusivamente no ambiente da Vercel; nunca no cliente ou GitHub.
-- Autenticação por cookie HttpOnly; autorização por perfil e município no servidor.
-- Cada entrega tem UUID imutável. Reenvios idênticos retornam o mesmo recibo, sem duplicação.
-- Escritas em documentos existentes usam ETag/ifMatch; novos registros não podem sobrescrever arquivos.
-- Não informar prontidão offline antes de verificar todos os arquivos e bibliotecas em cache.
-- Testar o fluxo gestor → cadastro/QR → coletor → offline → envio → painel antes de declarar funcionamento completo.
-
-## Validação
-`npm ci` e `npm test`. As funções ficam em `api/`, com domínio em `server/`. Para verificar na Vercel, conecte primeiro o Blob privado e as variáveis documentadas no README. Não simular persistência em produção.
+- Nunca use o proprietário do banco em `DATABASE_URL`. O servidor verifica `recicla_app`, sem propriedade/BYPASSRLS. Use `recicla_auth` apenas nos fluxos de autenticação e equipe com escopo explícito.
+- Toda operação municipal deve usar `scoped` dentro de uma transação. Perfil e cidade vêm de `principal`, nunca do cliente. Administrador precisa selecionar uma cidade; não adicionamos administradores por HTTP.
+- Gestores podem administrar outros gestores e coletores do próprio município. Preserve o bloqueio de conta própria e o mutex transacional do último gestor.
+- Pesos são gramas inteiras no banco. UUID de entrega e QR `recicla:morador:UUID` são imutáveis. Reenvios idênticos retornam recibos; alterações conflitam.
+- APIs não entram no cache do service worker. LocalStorage nunca guarda tokens/senhas; pendências pertencem à conta original e só saem após guardar recibo.
+- Não adicione dados demonstrativos à produção. Os scripts de teste exigem banco local descartável com nome `recicla_test`.
+- Execute `npm run typecheck`, testes de segurança com PostgreSQL real, `npm run build` e `npm run test:browser` para mudanças substanciais. Mantenha claro quais verificações dependem de celular real/produção.
+- Não versionar `.env`, senhas, códigos de recuperação ou dados operacionais. Leia `docs/OPERACAO.md` para provisionamento e recuperação.

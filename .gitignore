@@ -1,6 +1,11 @@
 node_modules/
+dist/
 .vercel/
 .env*
 !.env.example
 *.key
 test-results/
+playwright-report/
+coverage/
+work/
+*.tsbuildinfo

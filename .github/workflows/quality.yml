@@ -1,0 +1,48 @@
+name: Verificações Recicla+
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: teste-owner-local
+          POSTGRES_DB: recicla_test
+        ports: [5432:5432]
+        options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgresql://postgres:teste-owner-local@127.0.0.1:5432/recicla_test
+      DATABASE_URL: postgresql://recicla_app:teste-app-local@127.0.0.1:5432/recicla_test
+      AUTH_DATABASE_URL: postgresql://recicla_auth:teste-auth-local@127.0.0.1:5432/recicla_test
+      BETTER_AUTH_SECRET: segredo-exclusivo-de-teste-descartavel-2026
+      APP_ORIGIN: http://127.0.0.1:5173
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run db:generate
+      - run: npm run typecheck
+      - run: npm run test:setup
+      - run: npm test
+      - run: npm audit --audit-level=high
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:browser
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: verificacao-de-telas
+          path: |
+            playwright-report
+            test-results
+          retention-days: 7

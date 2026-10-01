@@ -1,0 +1,175 @@
+generator client {
+  provider = "prisma-client-js"
+}
+datasource db {
+  provider = "postgresql"
+}
+model User {
+  id String @id @default(uuid()) @db.Uuid
+  name String
+  email String @unique
+  emailVerified Boolean @default(false)
+  image String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  role String @default("coletor")
+  municipioId String? @db.Uuid
+  municipio Municipio? @relation(fields: [municipioId], references: [id], onDelete: Restrict)
+  ativo Boolean @default(true)
+  deletedAt DateTime?
+  mustChangePassword Boolean @default(true)
+  twoFactorEnabled Boolean @default(false)
+  banned Boolean @default(false)
+  banReason String?
+  banExpires DateTime?
+  sessions Session[]
+  accounts Account[]
+  twoFactor TwoFactor?
+  entregas Entrega[]
+  @@unique([municipioId, id])
+  @@index([municipioId, role, ativo])
+  @@map("user")
+}
+model Session {
+  id String @id @default(uuid()) @db.Uuid
+  expiresAt DateTime
+  token String @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  ipAddress String?
+  userAgent String?
+  userId String @db.Uuid
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  impersonatedBy String?
+  @@index([userId])
+  @@map("session")
+}
+model Account {
+  id String @id @default(uuid()) @db.Uuid
+  accountId String
+  providerId String
+  userId String @db.Uuid
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken String?
+  refreshToken String?
+  idToken String?
+  accessTokenExpiresAt DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope String?
+  password String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([userId])
+  @@map("account")
+}
+model Verification {
+  id String @id @default(uuid()) @db.Uuid
+  identifier String
+  value String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([identifier])
+  @@map("verification")
+}
+model TwoFactor {
+  id String @id @default(uuid()) @db.Uuid
+  secret String
+  backupCodes String
+  userId String @unique @db.Uuid
+  verified Boolean @default(true)
+  failedVerificationCount Int @default(0)
+  lockedUntil DateTime?
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@map("twoFactor")
+}
+model RateLimit {
+  id String @id @default(uuid()) @db.Uuid
+  key String @unique
+  count Int
+  lastRequest BigInt
+  @@map("rateLimit")
+}
+model Municipio {
+  id String @id @default(uuid()) @db.Uuid
+  nome String
+  nomeNormalizado String @unique
+  uf String @default("MS")
+  ativo Boolean @default(true)
+  version Int @default(1)
+  criadoEm DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+  users User[]
+  moradores Morador[]
+  pontos Ponto[]
+  entregas Entrega[]
+  auditorias Auditoria[]
+}
+model Morador {
+  id String @id @default(uuid()) @db.Uuid
+  municipioId String @db.Uuid
+  municipio Municipio @relation(fields: [municipioId], references: [id], onDelete: Restrict)
+  nome String
+  bairro String @default("")
+  ativo Boolean @default(true)
+  version Int @default(1)
+  criadoEm DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+  entregas Entrega[]
+  @@unique([municipioId, id])
+  @@index([municipioId, ativo, nome])
+}
+model Ponto {
+  id String @id @default(uuid()) @db.Uuid
+  municipioId String @db.Uuid
+  municipio Municipio @relation(fields: [municipioId], references: [id], onDelete: Restrict)
+  nome String
+  local String
+  lat Float
+  lng Float
+  ativo Boolean @default(true)
+  version Int @default(1)
+  criadoEm DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+  entregas Entrega[]
+  @@unique([municipioId, id])
+  @@index([municipioId, ativo])
+}
+model Material {
+  id String @id
+  nome String
+  entregas Entrega[]
+}
+model Entrega {
+  id String @db.Uuid
+  municipioId String @db.Uuid
+  municipio Municipio @relation(fields: [municipioId], references: [id], onDelete: Restrict)
+  moradorId String @db.Uuid
+  morador Morador @relation(fields: [municipioId, moradorId], references: [municipioId, id], onDelete: Restrict)
+  pontoId String @db.Uuid
+  ponto Ponto @relation(fields: [municipioId, pontoId], references: [municipioId, id], onDelete: Restrict)
+  coletorId String @db.Uuid
+  coletor User @relation(fields: [municipioId, coletorId], references: [municipioId, id], onDelete: Restrict)
+  materialId String
+  material Material @relation(fields: [materialId], references: [id], onDelete: Restrict)
+  gramas Int
+  criadoEm DateTime
+  recebidoEm DateTime @default(now())
+  moradorNome String
+  pontoNome String
+  coletorNome String
+  materialNome String
+  @@id([municipioId, id])
+  @@index([municipioId, criadoEm])
+  @@index([municipioId, coletorId, criadoEm])
+}
+model Auditoria {
+  id String @id @default(uuid()) @db.Uuid
+  municipioId String? @db.Uuid
+  municipio Municipio? @relation(fields: [municipioId], references: [id], onDelete: Restrict)
+  actorId String @db.Uuid
+  acao String
+  alvoId String
+  criadoEm DateTime @default(now())
+  @@index([municipioId, criadoEm])
+}
