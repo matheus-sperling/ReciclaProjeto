@@ -66,6 +66,7 @@ for (const viewport of [
         await page.screenshot({
           path: `test-results/${viewport.width}-${theme}-${path.slice(1)}.png`,
           fullPage: true,
+          animations: "disabled",
         });
       }
       expect(errors).toEqual([]);
@@ -165,6 +166,12 @@ test("Atualização do aplicativo espera o formulário seguro", async ({
   const original = await readFile("dist/coletor-sw.js", "utf8");
   try {
     await login(page, "coletor-a@teste.invalid");
+    // A document opened at /entrar can remain outside /coletor's worker scope
+    // after SPA navigation. Reload within the scope to exercise a waiting update.
+    await page.reload();
+    await expect
+      .poll(() => page.evaluate(() => !!navigator.serviceWorker.controller))
+      .toBe(true);
     await expect(
       page.getByText("Pronto para coleta offline", { exact: true }),
     ).toBeVisible({ timeout: 30000 });
@@ -348,6 +355,7 @@ test("Administrador: primeiro acesso, autenticador e telas da plataforma nos doi
         await page.screenshot({
           path: `test-results/admin-${width}-${theme}-${path.slice(1)}.png`,
           fullPage: true,
+          animations: "disabled",
         });
       }
     }

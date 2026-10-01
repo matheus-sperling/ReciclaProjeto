@@ -66,6 +66,7 @@ const catalog = ref<Catalogo | null>(null),
   update = ref(false);
 let scanner: Html5Qrcode | undefined,
   registration: ServiceWorkerRegistration | undefined,
+  installingWorker: ServiceWorker | undefined,
   timer: ReturnType<typeof setInterval>;
 const queue = computed(() => rows.value.filter((r) => r.status === "pendente")),
   visible = computed(() =>
@@ -340,6 +341,20 @@ function controller() {
   if (!dirty.value && !saving.value && !syncing.value) location.reload();
   else update.value = true;
 }
+function workerState() {
+  update.value =
+    !!registration?.waiting ||
+    (installingWorker?.state === "installed" &&
+      !!registration?.active &&
+      installingWorker !== registration.active);
+  void checkOffline();
+}
+function observeWorker() {
+  installingWorker?.removeEventListener("statechange", workerState);
+  installingWorker = registration?.installing || undefined;
+  installingWorker?.addEventListener("statechange", workerState);
+  workerState();
+}
 function beforeUnload(event: BeforeUnloadEvent) {
   if (dirty.value) {
     event.preventDefault();
@@ -362,12 +377,8 @@ onMounted(async () => {
         scope: "/coletor",
       });
       update.value = !!registration.waiting;
-      registration.addEventListener("updatefound", () => {
-        registration?.installing?.addEventListener("statechange", () => {
-          update.value = !!registration?.waiting;
-          void checkOffline();
-        });
-      });
+      registration.addEventListener("updatefound", observeWorker);
+      observeWorker();
       navigator.serviceWorker.addEventListener("controllerchange", controller);
       navigator.serviceWorker.ready.then(() => checkOffline());
     }
@@ -396,6 +407,8 @@ onBeforeUnmount(() => {
   window.removeEventListener("storage", local);
   window.removeEventListener("beforeunload", beforeUnload);
   navigator.serviceWorker?.removeEventListener("controllerchange", controller);
+  registration?.removeEventListener("updatefound", observeWorker);
+  installingWorker?.removeEventListener("statechange", workerState);
 });
 </script>
 <template>
