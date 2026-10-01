@@ -23,6 +23,8 @@ Para previews com URLs variáveis, configure a origem exata do preview e um banc
 
 ## Administrador inicial
 
+Para criar a conta pessoalmente, abra um terminal na pasta do projeto e execute `node --import tsx scripts/create-admin.ts --interactive`. Informe nome, e-mail, conexão PostgreSQL do projeto Neon e senha temporária de pelo menos 12 caracteres. A conexão e as duas entradas da senha ficam ocultas e não são gravadas em arquivos. No painel Neon, obtenha a conexão do banco correto em **Connect**, com SSL habilitado. A credencial proprietária pode ser usada apenas nesse processo administrativo local de criação; as funções da Vercel continuam usando os logins limitados.
+
 No terminal protegido, configure `AUTH_DATABASE_URL`, `ADMIN_NAME`, `ADMIN_EMAIL` e `ADMIN_PASSWORD` (mínimo 12 caracteres). Execute `npm run admin:create` e retire as variáveis de bootstrap do ambiente. O procedimento aceita somente o primeiro administrador; o índice do banco impede criação concorrente de outro. Não existe senha padrão.
 
 Entre no sistema, substitua a senha temporária por uma senha pessoal e configure um aplicativo autenticador. Guarde os códigos de recuperação em local privado. Sem trocar a senha e confirmar TOTP o administrador não acessa municípios nem a operação. Crie o município e seu primeiro gestor em **Municípios → Abrir → Equipe**. Entregue a senha temporária do gestor por canal privado; a troca é obrigatória no primeiro acesso. Gestores podem criar os demais gestores e coletores de sua cidade.

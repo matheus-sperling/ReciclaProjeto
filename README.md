@@ -52,4 +52,4 @@ Credenciais públicas **exclusivamente dos testes**: `gestor-a@teste.invalid`, `
 
 ## Publicação
 
-Vercel executa o build Vite e as funções Node em `/api/recicla?action=...` e `/api/auth/*`. A produção acompanha a `main`. Não publique a nova versão antes de configurar o banco novo, suas credenciais e o administrador. Nenhum registro do Blob é importado. [Guia de operação e recuperação](docs/OPERACAO.md) e [roteiro de validação](GUIA-DEMONSTRACAO.md).
+Vercel executa o build Vite e as funções Node em `/api/recicla?action=...` e `/api/auth/*`. A produção acompanha a `main`. Configure o banco novo e as credenciais antes da publicação; crie o administrador pelo procedimento protegido para realizar o primeiro acesso. Nenhum registro do Blob é importado. [Guia de operação e recuperação](docs/OPERACAO.md) e [roteiro de validação](docs/VALIDACAO.md).

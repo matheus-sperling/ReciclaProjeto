@@ -33,6 +33,32 @@ for (const viewport of [
     test(`Todas as telas municipais · ${viewport.width}px · ${theme}`, async ({
       browser,
     }) => {
+      const publicContext = await browser.newContext({ viewport });
+      await publicContext.addInitScript(
+        (value) => localStorage.setItem("recicla-theme", value),
+        theme,
+      );
+      const publicPage = await publicContext.newPage();
+      await publicPage.goto("/entrar");
+      await expect(
+        publicPage.getByRole("button", { name: "Entrar", exact: true }),
+      ).toBeVisible();
+      await expect(
+        publicPage.getByRole("button", {
+          name: theme === "dark" ? "Ativar modo claro" : "Ativar modo escuro",
+        }),
+      ).toBeVisible();
+      expect(
+        await publicPage.evaluate(
+          () => document.documentElement.scrollWidth <= innerWidth + 1,
+        ),
+      ).toBe(true);
+      await publicPage.screenshot({
+        path: `test-results/${viewport.width}-${theme}-login.png`,
+        fullPage: true,
+        animations: "disabled",
+      });
+      await publicContext.close();
       const context = await browser.newContext({
         storageState: storage,
         viewport,
@@ -72,6 +98,32 @@ for (const viewport of [
       expect(errors).toEqual([]);
       await context.close();
     });
+test("O tema acompanha login, coletor, painel e saída da conta", async ({
+  browser,
+}) => {
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  await page.goto("/entrar");
+  await page.getByRole("button", { name: "Ativar modo escuro" }).click();
+  await expect(page.locator("html")).toHaveClass(/dark/);
+  await login(page, "gestor-a@teste.invalid");
+  await expect(page.locator("html")).toHaveClass(/dark/);
+  await page.getByRole("link", { name: "Coletor", exact: true }).click();
+  await page.getByRole("button", { name: "Ativar modo claro" }).click();
+  await expect(page.locator("html")).not.toHaveClass(/dark/);
+  await page.getByRole("link", { name: "Voltar ao painel" }).click();
+  await page.getByRole("button", { name: "Ativar modo escuro" }).click();
+  await expect(page.locator("html")).toHaveClass(/dark/);
+  await page.getByRole("button", { name: "Sair da conta" }).click();
+  await expect(page).toHaveURL(/\/entrar$/);
+  await expect(page.locator("html")).toHaveClass(/dark/);
+  await page.reload();
+  await expect(page.locator("html")).toHaveClass(/dark/);
+  await page.getByRole("button", { name: "Ativar modo claro" }).click();
+  await expect(page.locator("html")).not.toHaveClass(/dark/);
+  await context.close();
+});
+
 test("Gestor → cadastro e QR → coleta offline → sincronização → recibo → painel", async ({
   browser,
 }) => {

@@ -1,4 +1,4 @@
-# Roteiro de aceitação
+# Roteiro de validação e aceitação
 
 Use um ambiente de teste separado. Dados demonstrativos são criados apenas por `test:setup`, que exige PostgreSQL local descartável `recicla_test`. A produção começa vazia.
 

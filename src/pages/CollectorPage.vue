@@ -10,8 +10,6 @@ import {
   RefreshCw,
   Download,
   LogOut,
-  Sun,
-  Moon,
   ShieldCheck,
   ArrowLeft,
   CheckCircle2,
@@ -41,6 +39,7 @@ import {
 } from "../lib/offline";
 import UiDialog from "../components/UiDialog.vue";
 import PageState from "../components/PageState.vue";
+import ThemeToggle from "../components/ThemeToggle.vue";
 const router = useRouter(),
   user = state.user!;
 const catalog = ref<Catalogo | null>(null),
@@ -301,11 +300,6 @@ function connectivity() {
     void sync();
   } else void checkOffline();
 }
-function toggleTheme() {
-  const value = !document.documentElement.classList.contains("dark");
-  document.documentElement.classList.toggle("dark", value);
-  localStorage.setItem("recicla-theme", value ? "dark" : "light");
-}
 async function logout() {
   saving.value = true;
   try {
@@ -430,13 +424,7 @@ onBeforeUnmount(() => {
           to="/seguranca"
           aria-label="Segurança da conta"
           ><ShieldCheck :size="19" /></RouterLink
-        ><button
-          class="icon-button"
-          aria-label="Alternar aparência"
-          @click="toggleTheme"
-        >
-          <Sun :size="19" /></button
-        ><button
+        ><ThemeToggle compact /><button
           class="icon-button"
           aria-label="Sair da conta"
           @click="exit = true"

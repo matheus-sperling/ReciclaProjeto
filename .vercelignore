@@ -5,4 +5,8 @@ AGENTS.md
 README.md
 .env*
 *.key
-GUIA-DEMONSTRACAO.md
+docs
+test-results
+playwright-report
+coverage
+*.tsbuildinfo

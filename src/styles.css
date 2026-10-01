@@ -18,6 +18,7 @@
   --shadow: 0 8px 30px #17392a06;
   --danger: #b83c44;
   --amber: #986416;
+  --login-story: #164e38;
 }
 :root.dark {
   color-scheme: dark;
@@ -33,6 +34,24 @@
   --shadow: 0 8px 30px #0002;
   --danger: #f49da2;
   --amber: #e2bb74;
+  --login-story: #102d20;
+}
+.leaflet-bar a,
+.leaflet-control-attribution,
+.leaflet-popup-content-wrapper,
+.leaflet-popup-tip {
+  background: var(--surface);
+  color: var(--text);
+}
+.leaflet-bar a {
+  border-color: var(--border);
+}
+.leaflet-bar a:hover {
+  background: var(--surface-alt);
+}
+.leaflet-control-attribution a,
+.leaflet-container a.leaflet-popup-close-button {
+  color: var(--green);
 }
 * {
   box-sizing: border-box;
@@ -391,6 +410,21 @@ p {
   font-size: 11px;
   padding: 10px;
   width: 100%;
+}
+.public-theme-control {
+  position: fixed;
+  top: max(16px, env(safe-area-inset-top));
+  right: max(16px, env(safe-area-inset-right));
+  z-index: 10;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+.public-theme-control .icon-button {
+  width: 40px;
+  height: 40px;
 }
 .workspace {
   margin-left: 244px;
@@ -1031,7 +1065,7 @@ tbody tr:hover {
 .login-story {
   position: relative;
   overflow: hidden;
-  background: #164e38;
+  background: var(--login-story);
   color: #fff;
   padding: 45px 54px;
   display: flex;

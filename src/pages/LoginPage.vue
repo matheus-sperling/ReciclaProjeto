@@ -8,10 +8,9 @@ import {
   Building2,
   Eye,
   EyeOff,
-  ArrowLeft,
   KeyRound,
 } from "lucide-vue-next";
-import { authClient, authError, request, session, state } from "../lib/api";
+import { authClient, authError, request, session } from "../lib/api";
 const email = ref(""),
   password = ref(""),
   code = ref(""),

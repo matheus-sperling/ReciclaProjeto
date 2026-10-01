@@ -10,8 +10,6 @@ import {
   ShieldCheck,
   PackageCheck,
   ScanLine,
-  Sun,
-  Moon,
   LogOut,
   Menu,
   X,
@@ -20,20 +18,12 @@ import {
 import { authClient, clearContext, state, authError } from "./lib/api";
 import { logoutOffline } from "./lib/offline";
 import { roleLabel } from "../shared/contracts";
+import ThemeToggle from "./components/ThemeToggle.vue";
 const route = useRoute(),
   router = useRouter(),
   menu = ref(false),
   error = ref(""),
   leaving = ref(false);
-const dark = ref(localStorage.getItem("recicla-theme") === "dark");
-watch(
-  dark,
-  (v) => {
-    document.documentElement.classList.toggle("dark", v);
-    localStorage.setItem("recicla-theme", v ? "dark" : "light");
-  },
-  { immediate: true },
-);
 watch(
   () => route.path,
   () => {
@@ -139,11 +129,7 @@ async function logout() {
             Cada entrega conta.<br /><strong>Cada cidade transforma.</strong>
           </p>
         </div>
-        <button class="theme-button" @click="dark = !dark">
-          <component :is="dark ? Sun : Moon" :size="18" />{{
-            dark ? "Aparência clara" : "Aparência escura"
-          }}
-        </button>
+        <ThemeToggle />
       </div>
     </aside>
     <div class="workspace">
@@ -188,5 +174,10 @@ async function logout() {
       </footer>
     </div>
   </div>
-  <RouterView v-else />
+  <template v-else>
+    <div v-if="route.path !== '/coletor'" class="public-theme-control">
+      <ThemeToggle compact />
+    </div>
+    <RouterView />
+  </template>
 </template>
