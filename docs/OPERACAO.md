@@ -23,7 +23,19 @@ Para previews com URLs variáveis, configure a origem exata do preview e um banc
 
 ## Administrador inicial
 
-Para criar a conta pessoalmente, abra um terminal na pasta do projeto e execute `node --import tsx scripts/create-admin.ts --interactive`. Informe nome, e-mail, conexão PostgreSQL do projeto Neon e senha temporária de pelo menos 12 caracteres. A conexão e as duas entradas da senha ficam ocultas e não são gravadas em arquivos. No painel Neon, obtenha a conexão do banco correto em **Connect**, com SSL habilitado. A credencial proprietária pode ser usada apenas nesse processo administrativo local de criação; as funções da Vercel continuam usando os logins limitados.
+O fluxo recomendado é pelo próprio site, na página **`/ativar`**, disponível nos temas claro e escuro. O banco e os quatro valores de execução acima devem estar funcionando. O usuário informa somente código de ativação, nome, e-mail e senha inicial de pelo menos 12 caracteres; nenhuma conexão do banco é solicitada no formulário.
+
+Uma pessoa autorizada com acesso às configurações Vercel gera um código com 256 bits aleatórios e validade de 48 horas:
+
+```sh
+node -e "console.log((Date.now()+48*60*60*1000)+'.'+require('node:crypto').randomBytes(32).toString('hex'))"
+```
+
+Cadastre esse valor como variável **Secret** `ADMIN_SETUP_TOKEN`, somente no ambiente pretendido, e publique novamente para ativá-la. Entregue o código em canal privado. Nunca use prefixo `VITE_`, parâmetro na URL, código de exemplo, arquivo público ou GitHub. O código é uma credencial temporária: quem o possuir enquanto não houver administrador pode criar essa primeira conta.
+
+O servidor verifica origem, validade, código em tempo constante, limites por IP e por instalação, e cria conta, senha cifrada por hash e auditoria numa única transação. A trava transacional e o índice único impedem dois administradores mesmo com pedidos simultâneos. Depois da criação, o servidor bloqueia novas ativações, incluindo se a conta estiver inativa ou removida. A página não redefine contas existentes. Remova `ADMIN_SETUP_TOKEN` da Vercel após concluir e publique novamente; o bloqueio do banco já vale imediatamente, sem depender dessa limpeza.
+
+Como alternativa administrativa local, existe `node --import tsx scripts/create-admin.ts --interactive`. Ele usa a mesma criação transacional e recebe nome, e-mail, conexão privada e senha sem gravá-los em arquivos. Não é necessário para o primeiro acesso pelo site.
 
 No terminal protegido, configure `AUTH_DATABASE_URL`, `ADMIN_NAME`, `ADMIN_EMAIL` e `ADMIN_PASSWORD` (mínimo 12 caracteres). Execute `npm run admin:create` e retire as variáveis de bootstrap do ambiente. O procedimento aceita somente o primeiro administrador; o índice do banco impede criação concorrente de outro. Não existe senha padrão.
 

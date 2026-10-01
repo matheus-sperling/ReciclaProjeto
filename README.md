@@ -7,7 +7,7 @@ Aplicação Vue 3 para municípios de Mato Grosso do Sul. O mesmo repositório m
 - Painel com período no fuso `America/Campo_Grande`, mapa Leaflet, gráfico Chart.js e indicadores calculados no servidor.
 - Municípios, moradores/QR, pontos e equipe em páginas próprias, com busca, paginação e edição.
 - Gestores administram outros gestores e coletores da própria cidade. Administrador global escolhe explicitamente a cidade. Coletores acessam catálogo e seu próprio histórico.
-- Better Auth com sessões verificadas no banco, cookies HttpOnly e autenticação TOTP obrigatória para o administrador. Sem cadastro público, senha padrão ou promoção a administrador por API.
+- Better Auth com sessões verificadas no banco, cookies HttpOnly e autenticação TOTP obrigatória para o administrador. Primeiro administrador pela página `/ativar`, com código privado de uso único e prazo de validade. Sem cadastro público livre, senha padrão ou promoção a administrador por API.
 - Coleta por câmera, imagem ou código manual; revisão, fila offline por usuário/cidade, recibos idempotentes, exportação e sincronização com aplicativo aberto.
 - Tema claro por padrão, opção escura, interface responsiva, estados vazios/erro/carregamento e diálogos acessíveis.
 
@@ -52,4 +52,4 @@ Credenciais públicas **exclusivamente dos testes**: `gestor-a@teste.invalid`, `
 
 ## Publicação
 
-Vercel executa o build Vite e as funções Node em `/api/recicla?action=...` e `/api/auth/*`. A produção acompanha a `main`. Configure o banco novo e as credenciais antes da publicação; crie o administrador pelo procedimento protegido para realizar o primeiro acesso. Nenhum registro do Blob é importado. [Guia de operação e recuperação](docs/OPERACAO.md) e [roteiro de validação](docs/VALIDACAO.md).
+Vercel executa o build Vite e as funções Node em `/api/recicla?action=...` e `/api/auth/*`. A produção acompanha a `main`. Configure o banco novo e as credenciais antes da publicação; habilite um código privado temporário e abra `/ativar` para criar o primeiro administrador pelo navegador. A página usa a conexão de autenticação do servidor, sem solicitar conexão do banco ao usuário. Nenhum registro do Blob é importado. [Guia de operação e recuperação](docs/OPERACAO.md) e [roteiro de validação](docs/VALIDACAO.md).

@@ -6,6 +6,7 @@ import { createDomain } from "./domain.js";
 import { ApiError } from "./errors.js";
 import { senha } from "../shared/validation.js";
 import { limitLogin } from "./limits.js";
+import { activateAdministrator, setupStatus } from "./bootstrap.js";
 
 const allowedAuth = new Set([
   "sign-in/email",
@@ -173,6 +174,13 @@ export async function authHandler(
     await verifyRuntimeRoles();
     const url = new URL(request.url),
       path = url.pathname.replace(/^\/api\/auth\/?/, "");
+    if (path === "setup/status" && request.method === "GET")
+      return json(await setupStatus());
+    if (path === "setup/create" && request.method === "POST")
+      return json(
+        await activateAdministrator(await bodyObject(request), clientIp),
+        201,
+      );
     if (!allowedAuth.has(path) || request.method !== "POST")
       throw new ApiError(404, "Operação indisponível.");
     const body = await bodyObject(request);

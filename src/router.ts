@@ -19,6 +19,11 @@ export const router = createRouter({
       meta: { public: true, title: "Acesse sua conta" },
     },
     {
+      path: "/ativar",
+      component: () => import("./pages/ActivationPage.vue"),
+      meta: { public: true, title: "Primeiro acesso" },
+    },
+    {
       path: "/seguranca",
       component: () => import("./pages/SecurityPage.vue"),
       meta: { title: "Segurança da conta" },

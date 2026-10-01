@@ -11,6 +11,8 @@ import {
   KeyRound,
 } from "lucide-vue-next";
 import { authClient, authError, request, session } from "../lib/api";
+import { activationRequest, type ActivationStatus } from "../lib/activation";
+const activationAvailable = ref(false);
 const email = ref(""),
   password = ref(""),
   code = ref(""),
@@ -28,6 +30,10 @@ onMounted(async () => {
     configured.value = (
       await request<{ configured: boolean }>("status", { scope: false })
     ).configured;
+    if (configured.value) {
+      const activation = await activationRequest<ActivationStatus>("status");
+      activationAvailable.value = activation.available;
+    }
   } catch (e) {
     error.value = e instanceof Error ? e.message : "Servidor indisponível.";
   } finally {
@@ -236,6 +242,11 @@ async function submit() {
             >
           </p>
         </div>
+        <p class="login-footer">
+          <RouterLink v-if="activationAvailable && !factor" to="/ativar"
+            >Primeiro acesso do administrador</RouterLink
+          >
+        </p>
         <p class="login-footer">
           Recicla+ · Gestão municipal da coleta seletiva
         </p>
