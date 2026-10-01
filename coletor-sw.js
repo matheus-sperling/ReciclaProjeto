@@ -1,6 +1,6 @@
 /* Apenas /coletor é controlado; o painel do gestor mantém seu funcionamento. */
 'use strict';
-const CACHE = 'recicla-coletor-v2';
+const CACHE = 'recicla-coletor-v3';
 const LOCAIS = [
   '/shared/client.js', '/shared/auth.js', '/shared/styles.css', '/coletor/index.html', '/coletor/styles.css', '/coletor/config.js',
   '/coletor/core.js', '/coletor/app.js', '/coletor/manifest.webmanifest', '/coletor/icon.svg',

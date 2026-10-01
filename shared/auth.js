@@ -22,6 +22,11 @@ window.ReciclaAuth = {
     const { ref, onMounted } = Vue;
     const loading = ref(true), configured = ref(false), setup = ref(false), busy = ref(false), error = ref('');
     const nome = ref(''), municipio = ref('Coxim'), email = ref(''), password = ref(''), setupToken = ref('');
+    const fragment = new URLSearchParams(location.hash.slice(1));
+    const invitation = fragment.get('setup');
+    if (invitation && /^[a-f0-9]{64}$/.test(invitation)) {
+      setupToken.value = invitation; history.replaceState(null, '', location.pathname + location.search);
+    }
     onMounted(async () => {
       try { const status = await ReciclaAPI.request('status'); configured.value = status.configured; setup.value = status.setupNeeded;
         if (!status.configured) error.value = `Configuração pendente: ${(status.missing || []).join(', ')}.`;
