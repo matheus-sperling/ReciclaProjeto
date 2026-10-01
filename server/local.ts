@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
 import { createServer as createVite, preview } from "vite";
-import { handleNode } from "./http.ts";
+import { handleNode } from "./http.js";
 try {
   process.loadEnvFile(".env.local");
 } catch {}

@@ -2,8 +2,8 @@ import { randomBytes } from "node:crypto";
 import { hashPassword } from "better-auth/crypto";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import { z } from "zod";
-import { ApiError } from "./errors.ts";
-import { scoped } from "./db.ts";
+import { ApiError } from "./errors.js";
+import { scoped } from "./db.js";
 import {
   contaSchema,
   entregaSchema,
@@ -13,8 +13,8 @@ import {
   pontoSchema,
   rangeDatas,
   uuid,
-} from "../shared/validation.ts";
-import type { User } from "../shared/contracts.ts";
+} from "../shared/validation.js";
+import type { User } from "../shared/contracts.js";
 
 type Query = Record<string, string>;
 const manager = (u: User) => {

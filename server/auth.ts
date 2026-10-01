@@ -2,9 +2,9 @@ import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
 import { admin, twoFactor } from "better-auth/plugins";
 import { adminAc, userAc } from "better-auth/plugins/admin/access";
-import { authDb } from "./db.ts";
-import { ApiError } from "./errors.ts";
-import type { Role, User } from "../shared/contracts.ts";
+import { authDb } from "./db.js";
+import { ApiError } from "./errors.js";
+import type { Role, User } from "../shared/contracts.js";
 let instance: ReturnType<typeof buildAuth> | undefined;
 export function buildAuth() {
   const secret = process.env.BETTER_AUTH_SECRET;

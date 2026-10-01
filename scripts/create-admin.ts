@@ -1,6 +1,6 @@
 import { hashPassword } from "better-auth/crypto";
-import { authDb, disconnect } from "../server/db.ts";
-import { nome, senha } from "../shared/validation.ts";
+import { authDb, disconnect } from "../server/db.js";
+import { nome, senha } from "../shared/validation.js";
 import { z } from "zod";
 try {
   process.loadEnvFile(".env.local");

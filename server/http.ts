@@ -1,11 +1,11 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { z } from "zod";
-import { auth, principal } from "./auth.ts";
-import { appDb, authDb, verifyRuntimeRoles } from "./db.ts";
-import { createDomain } from "./domain.ts";
-import { ApiError } from "./errors.ts";
-import { senha } from "../shared/validation.ts";
-import { limitLogin } from "./limits.ts";
+import { auth, principal } from "./auth.js";
+import { appDb, authDb, verifyRuntimeRoles } from "./db.js";
+import { createDomain } from "./domain.js";
+import { ApiError } from "./errors.js";
+import { senha } from "../shared/validation.js";
+import { limitLogin } from "./limits.js";
 
 const allowedAuth = new Set([
   "sign-in/email",

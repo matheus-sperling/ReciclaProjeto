@@ -1,6 +1,6 @@
-import { makeClient } from "../server/db.ts";
+import { makeClient } from "../server/db.js";
 import { hashPassword } from "better-auth/crypto";
-import { senha } from "../shared/validation.ts";
+import { senha } from "../shared/validation.js";
 // Recovery is available only with the migration credential, never over HTTP.
 if (process.env.ADMIN_RECOVERY_CONFIRM !== "RECUPERAR_ADMINISTRADOR")
   throw new Error("Confirmação explícita ausente.");

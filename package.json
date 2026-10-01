@@ -12,6 +12,7 @@
     "build": "prisma generate && vite build",
     "preview": "vite preview --host 127.0.0.1",
     "typecheck": "vue-tsc --noEmit && tsc -p tsconfig.server.json --noEmit",
+    "check:api": "node scripts/check-runtime.mjs",
     "test": "vitest run",
     "test:browser": "playwright test",
     "db:generate": "prisma generate",

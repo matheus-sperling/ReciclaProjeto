@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
-import { authDb } from "./db.ts";
-import { ApiError } from "./errors.ts";
+import { authDb } from "./db.js";
+import { ApiError } from "./errors.js";
 export async function limitLogin(email: string) {
   const bucket = Math.floor(Date.now() / 900000);
   const key =

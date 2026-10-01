@@ -21,6 +21,7 @@ Use Node 24 e npm. Instale com `npm ci` e gere o cliente com `npm run db:generat
 
 ```sh
 npm run typecheck
+npm run check:api
 npm run test:setup
 npm test
 npm audit --audit-level=high

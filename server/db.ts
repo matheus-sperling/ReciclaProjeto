@@ -1,6 +1,6 @@
 import { PrismaClient, Prisma } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
-import type { User } from "../shared/contracts.ts";
+import type { User } from "../shared/contracts.js";
 let appClient: PrismaClient | undefined, authClient: PrismaClient | undefined;
 export function makeClient(url: string) {
   return new PrismaClient({

@@ -32,6 +32,7 @@ jobs:
       - run: npm ci
       - run: npm run db:generate
       - run: npm run typecheck
+      - run: npm run check:api
       - run: npm run test:setup
       - run: npm test
       - run: npm audit --audit-level=high
