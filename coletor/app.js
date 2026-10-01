@@ -1,7 +1,7 @@
 document.addEventListener('DOMContentLoaded', () => {
   'use strict';
   const startup = document.getElementById('startup');
-  if (!window.Vue || !window.Dexie || !window.ReciclaCore || !window.RECICLA_CONFIG) {
+  if (!window.Vue || !window.ReciclaAPI || !window.ReciclaAuth || !window.ReciclaCore || !window.RECICLA_CONFIG) {
     startup.setAttribute('role', 'alert');
     startup.textContent = 'Não foi possível carregar o coletor. Na primeira abertura, conecte-se à internet para baixar as dependências e preparar o uso offline.';
     return;
@@ -9,9 +9,48 @@ document.addEventListener('DOMContentLoaded', () => {
   const { createApp, ref, reactive, computed, onMounted, onUnmounted, nextTick } = Vue;
   createApp({
     setup() {
-      const config = window.RECICLA_CONFIG;
-      const db = new Dexie('recicla');
-      db.version(1).stores({ entregas: 'id, moradorId, pontoId, materialId, criadoEm, status' });
+      const api = ReciclaAPI;
+      const config = reactive({ ...window.RECICLA_CONFIG, moradores: [] });
+      const user = ref(null), carregando = ref(true), sincronizando = ref(false);
+      const pendentes = ref(0), precisaEntrar = ref(false);
+      const morador = computed(() => config.moradores.find(r => r.id === form.moradorId.trim().toLowerCase() && r.ativo));
+      const atualizarHistorico = () => {
+        if (!user.value) return;
+        registros.value = api.history(user.value);
+        pendentes.value = api.pending(user.value).length;
+      };
+      let timer;
+      const atualizarCatalogo = async () => {
+        if (!user.value) return;
+        try {
+          const catalog = await api.request('catalogo');
+          api.write(user.value.id, 'catalog', catalog); Object.assign(config, catalog); bancoPronto.value = true;
+        } catch (e) { erro.value = e.message; if (e.status === 401) precisaEntrar.value = true; }
+      };
+      const sincronizar = async () => {
+        if (!user.value || !navigator.onLine || sincronizando.value || precisaEntrar.value) return;
+        sincronizando.value = true;
+        try {
+          await api.sync(user.value, () => { sucesso.value = 'Entrega recebida no armazenamento central.'; });
+          const result = await api.request('entregas');
+          api.write(user.value.id, 'receipts', result.entregas);
+        } catch (e) { erro.value = e.message; if (e.status === 401) precisaEntrar.value = true; }
+        finally { atualizarHistorico(); sincronizando.value = false; }
+      };
+      const entrar = async account => {
+        user.value = account; precisaEntrar.value = false; erro.value = '';
+        const cached = api.read(account.id, 'catalog', null);
+        bancoPronto.value = !!cached;
+        if (cached) Object.assign(config, cached);
+        atualizarHistorico();
+        if (navigator.onLine) { await atualizarCatalogo(); await sincronizar(); }
+      };
+      const sair = async () => {
+        if (pendentes.value) { erro.value = 'Envie as entregas pendentes antes de sair. Você pode exportar uma cópia; a fila permanece vinculada à sua conta.'; return; }
+        try { await pararCamera(); await api.logout(); user.value = null; bancoPronto.value = false; }
+        catch (e) { erro.value = e.message; }
+      };
+      const reentrar = () => { pararCamera(); user.value = null; };
       const form = reactive({ moradorId: '', pontoId: '', materialId: '', kg: '' });
       const aba = ref('nova'), manual = ref(false), revisao = ref(null);
       const erro = ref(''), sucesso = ref(''), erroCamera = ref('');
@@ -24,9 +63,9 @@ document.addEventListener('DOMContentLoaded', () => {
       const totalKg = computed(() => registros.value.reduce((total, r) => total + r.kg, 0));
       const numero = value => new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 3 }).format(value);
       const dataHora = value => new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short', timeZone: 'America/Campo_Grande' }).format(new Date(value));
-      let scanner = null, inicioCamera = null, leituraRecebida = false, subscription = null;
+      let scanner = null, inicioCamera = null, leituraRecebida = false;
       let registration = null;
-      const atualizarRede = () => { online.value = navigator.onLine; };
+      const atualizarRede = () => { online.value = navigator.onLine; if (online.value) { atualizarCatalogo(); sincronizar(); } };
       const alternarTema = () => {
         escuro.value = !escuro.value;
         const tema = escuro.value ? 'dark' : 'light';
@@ -85,6 +124,16 @@ document.addEventListener('DOMContentLoaded', () => {
           cameraAtiva.value = false;
         } finally { cameraOcupada.value = false; }
       };
+      const lerArquivo = async event => {
+        const file = event.target.files?.[0]; if (!file) return;
+        try {
+          await pararCamera(); await nextTick();
+          scanner ||= new Html5Qrcode('reader', { formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE], useBarCodeDetectorIfSupported: false });
+          form.moradorId = ReciclaCore.lerQr(await scanner.scanFile(file, false)).toLowerCase();
+          sucesso.value = 'QR lido. Confira os dados da entrega.'; erroCamera.value = '';
+        } catch (e) { erroCamera.value = e.message || 'Não foi possível ler o QR desta imagem.'; }
+        finally { event.target.value = ''; try { scanner?.clear(); } catch {} }
+      };
       const alternarManual = async () => {
         await pararCamera();
         manual.value = !manual.value;
@@ -97,10 +146,11 @@ document.addEventListener('DOMContentLoaded', () => {
       };
       const conferir = async () => {
         erro.value = ''; sucesso.value = '';
-        if (!bancoPronto.value) { erro.value = 'O armazenamento local ainda não está disponível.'; return; }
+        if (!bancoPronto.value) { erro.value = 'Conecte-se e atualize os cadastros antes de registrar entregas.'; return; }
         if (cameraAtiva.value || cameraOcupada.value) return;
         try {
-          revisao.value = { ...ReciclaCore.validar(form, config), id: crypto.randomUUID() };
+          if (!morador.value) throw new Error('Morador não encontrado ou inativo. Confira o código e atualize os cadastros com conexão.');
+          revisao.value = { ...ReciclaCore.validar(form, config), moradorNome: morador.value.nome, id: crypto.randomUUID(), coletorId: user.value.id };
           await nextTick(); document.getElementById('review-title')?.focus();
         } catch (error) { erro.value = error.message; }
       };
@@ -108,12 +158,13 @@ document.addEventListener('DOMContentLoaded', () => {
         if (salvando.value || !revisao.value || !bancoPronto.value) return;
         salvando.value = true; erro.value = '';
         try {
-          const record = { ...revisao.value, criadoEm: new Date().toISOString(), status: 'local' };
-          await db.entregas.add(record);
+          const record = { ...revisao.value, criadoEm: new Date().toISOString(), status: 'pendente' };
+          await api.enqueue(user.value, record);
           revisao.value = null;
           form.moradorId = ''; form.materialId = ''; form.kg = '';
           manual.value = false;
-          sucesso.value = `Entrega de ${numero(record.kg)} kg salva neste dispositivo.`;
+          sucesso.value = `Entrega de ${numero(record.kg)} kg salva. ${online.value ? 'Enviando ao servidor…' : 'Aguardando conexão para enviar.'}`;
+          atualizarHistorico(); sincronizar();
           // O pedido não é condição para salvar. O navegador pode recusá-lo.
           navigator.storage?.persist?.().catch(() => {});
           await nextTick(); document.getElementById('point')?.focus();
@@ -127,14 +178,9 @@ document.addEventListener('DOMContentLoaded', () => {
         if (exportando.value) return;
         exportando.value = true; erro.value = '';
         try {
-          const entregas = await db.entregas.orderBy('criadoEm').toArray();
+          const entregas = api.history(user.value);
           const payload = { formato: 'recicla-entregas', versao: 1, exportadoEm: new Date().toISOString(), entregas };
-          const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url; a.download = `recicla-entregas-${new Date().toISOString().slice(0, 10)}.json`;
-          document.body.append(a); a.click(); a.remove();
-          setTimeout(() => URL.revokeObjectURL(url), 1000);
+          api.download(payload, `recicla-entregas-${new Date().toISOString().slice(0, 10)}.json`);
           sucesso.value = 'Exportação preparada. Os registros continuam neste dispositivo.';
         } catch { erro.value = 'Não foi possível exportar o histórico. Tente novamente.'; }
         finally { exportando.value = false; }
@@ -174,7 +220,7 @@ document.addEventListener('DOMContentLoaded', () => {
           if (registration.waiting) avisoOffline.value = 'Há uma atualização. Termine a entrega, feche todas as telas do coletor e abra novamente.';
         } catch { avisoOffline.value = 'Não foi possível preparar o modo offline. Use a conexão e tente recarregar.'; }
       };
-      const aoOcultar = () => { if (document.hidden && (cameraAtiva.value || cameraOcupada.value)) pararCamera(); };
+      const aoOcultar = () => { if (document.hidden && (cameraAtiva.value || cameraOcupada.value)) pararCamera(); else if (!document.hidden) sincronizar(); };
       const aoSair = () => { soltarVideo(); };
       onMounted(async () => {
         startup.remove();
@@ -182,25 +228,22 @@ document.addEventListener('DOMContentLoaded', () => {
         document.addEventListener('visibilitychange', aoOcultar); window.addEventListener('pagehide', aoSair);
         navigator.serviceWorker?.addEventListener('controllerchange', checarOffline);
         prepararOffline();
-        try {
-          await db.open(); bancoPronto.value = true;
-          subscription = Dexie.liveQuery(() => db.entregas.orderBy('criadoEm').reverse().toArray()).subscribe({
-            next: value => { registros.value = value; },
-            error: () => { erro.value = 'Não foi possível carregar o histórico local. Recarregue o coletor.'; }
-          });
-        } catch {
-          erro.value = 'O armazenamento local está indisponível. Nenhuma entrega será salva. Confira as permissões do navegador e recarregue.';
-        }
+        window.addEventListener('recicla-data', atualizarHistorico);
+        timer = setInterval(() => { if (!document.hidden) sincronizar(); }, 15000);
+        try { const account = await api.session({ offline: true }); if (account) await entrar(account); }
+        catch (e) { erro.value = e.message; }
+        finally { carregando.value = false; }
+
       });
       onUnmounted(() => {
-        soltarVideo(); subscription?.unsubscribe(); db.close();
+        soltarVideo(); clearInterval(timer); window.removeEventListener('recicla-data', atualizarHistorico);
         window.removeEventListener('online', atualizarRede); window.removeEventListener('offline', atualizarRede);
         document.removeEventListener('visibilitychange', aoOcultar); window.removeEventListener('pagehide', aoSair);
         navigator.serviceWorker?.removeEventListener('controllerchange', checarOffline);
       });
-      return { config, form, aba, manual, revisao, erro, sucesso, erroCamera, bancoPronto, salvando, exportando,
+      return { user, carregando, sincronizando, pendentes, precisaEntrar, morador, entrar, sair, reentrar, atualizarCatalogo, sincronizar, lerArquivo, config, form, aba, manual, revisao, erro, sucesso, erroCamera, bancoPronto, salvando, exportando,
         cameraAtiva, cameraOcupada, online, offlinePronto, avisoOffline, escuro, registros, limite, registrosVisiveis,
         totalKg, numero, dataHora, alternarTema, iniciarCamera, pararCamera, alternarManual, trocarAba, conferir, salvar, exportar };
     }
-  }).mount('#app');
+  }).component('recicla-auth', ReciclaAuth).mount('#app');
 });

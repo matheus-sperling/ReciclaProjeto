@@ -1,28 +1,25 @@
 # AGENTS.md — Recicla+ (v0)
 
-Plataforma de coleta seletiva para municípios de MS. Moradores têm QR pessoal; coletores leem o QR e registram a entrega; gestores veem o painel.
+Plataforma de coleta seletiva para municípios de MS. Moradores têm QR pessoal; coletores registram entregas; gestores acompanham o painel. Preserve a identidade visual, o mapa Leaflet, o gráfico Chart.js e os temas existentes.
 
 ## Telas
+- `/`: painel do gestor, web 16:9, cadastros de moradores, QR, equipe e pontos.
+- `/coletor`: aplicativo mobile 9:16, PWA com fila offline e sincronização automática.
 
-- `/` — painel do gestor, web 16:9.
-- `/coletor` — app do coletor, mobile 9:16, PWA offline, com layout adaptável à altura da tela.
+## Bibliotecas
+Vue 3.5.13, Tailwind 4.1.13, html5-qrcode 2.3.8, Leaflet 1.9.4, Chart.js 4.4.8 e QRious 4.0.2 via CDN. Backend Node 24, SDK oficial `@vercel/blob` e `jose`.
 
-## Bibliotecas permitidas (CDN)
-
-Vue 3, Tailwind 4, Dexie 4, html5-qrcode 2.3.8, Leaflet 1.9.4 e Chart.js 4.4.8.
-
-## Banco local
-
-Dexie, banco `recicla`, versão 1, tabela `entregas`.
+## Armazenamento
+Somente Vercel Blob **privado**, com documentos JSON acessados pelo backend `/api/recicla`. Não adicionar Dexie, IndexedDB de entregas, Postgres ou serviços externos de banco. `localStorage` é apenas cache de cadastros, recibos e fila temporária de envio, separada por usuário. A API é a autoridade dos dados; o painel só soma registros recebidos no servidor.
 
 ## Regras
+- Não reinventar mapa, gráfico, leitor/gerador de QR ou armazenamento remoto.
+- Segredos exclusivamente no ambiente da Vercel; nunca no cliente ou GitHub.
+- Autenticação por cookie HttpOnly; autorização por perfil e município no servidor.
+- Cada entrega tem UUID imutável. Reenvios idênticos retornam o mesmo recibo, sem duplicação.
+- Escritas em documentos existentes usam ETag/ifMatch; novos registros não podem sobrescrever arquivos.
+- Não informar prontidão offline antes de verificar todos os arquivos e bibliotecas em cache.
+- Testar o fluxo gestor → cadastro/QR → coletor → offline → envio → painel antes de declarar funcionamento completo.
 
-- Não reinventar mapa, gráfico, QR nem banco local.
-- Preservar o painel existente, incluindo Leaflet, Chart.js e temas claro/escuro.
-- Manter a hospedagem na Vercel e a execução sem build.
-- As entregas do coletor são locais nesta versão; não indicar sincronização enquanto não houver integração central.
-- Ao alterar recursos do coletor, atualizar a versão do cache em `coletor-sw.js` e verificar a abertura offline.
-
-## QR do morador (contrato inicial)
-
-Conteúdo: `recicla:morador:ID`. O ID tem de 1 a 64 caracteres: letras ASCII, números, hífen ou sublinhado, iniciando por letra ou número. Não incluir nome ou CPF. A entrada manual aceita apenas o ID. Não há emissão de QR, cadastro ou validação de identidade nesta versão.
+## Validação
+`npm ci` e `npm test`. As funções ficam em `api/`, com domínio em `server/`. Para verificar na Vercel, conecte primeiro o Blob privado e as variáveis documentadas no README. Não simular persistência em produção.

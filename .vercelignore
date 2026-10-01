@@ -1,0 +1,7 @@
+.git
+node_modules
+tests
+AGENTS.md
+README.md
+.env*
+*.key

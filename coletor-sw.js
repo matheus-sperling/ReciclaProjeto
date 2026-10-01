@@ -1,14 +1,13 @@
 /* Apenas /coletor é controlado; o painel do gestor mantém seu funcionamento. */
 'use strict';
-const CACHE = 'recicla-coletor-v1';
+const CACHE = 'recicla-coletor-v2';
 const LOCAIS = [
-  '/coletor/index.html', '/coletor/styles.css', '/coletor/config.js',
+  '/shared/client.js', '/shared/auth.js', '/shared/styles.css', '/coletor/index.html', '/coletor/styles.css', '/coletor/config.js',
   '/coletor/core.js', '/coletor/app.js', '/coletor/manifest.webmanifest', '/coletor/icon.svg',
   '/coletor/icon-192.png', '/coletor/icon-512.png'
 ];
 const CDN = [
   'https://cdn.jsdelivr.net/npm/vue@3.5.13/dist/vue.global.prod.js',
-  'https://cdn.jsdelivr.net/npm/dexie@4.0.11/dist/dexie.min.js',
   'https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js'
 ];
 const ASSETS = [...LOCAIS, ...CDN];

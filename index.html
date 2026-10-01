@@ -186,12 +186,18 @@
     }
     @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
   </style>
+<link rel="stylesheet" href="/shared/styles.css">
+  <script defer src="/shared/client.js"></script><script defer src="/shared/auth.js"></script><script defer src="/shared/management.js"></script>
+  <script defer crossorigin="anonymous" src="https://cdn.jsdelivr.net/npm/qrious@4.0.2/dist/qrious.min.js"></script>
 </head>
 <body>
   <noscript><p class="error-banner">Ative o JavaScript para visualizar os indicadores, o mapa e o gráfico.</p></noscript>
   <div id="startup" class="error-banner" role="status">Carregando o painel Recicla+…</div>
   <div id="app" v-cloak>
-    <div class="dashboard" id="dashboard">
+    <p v-if="carregando" class="app-message">Verificando acesso…</p>
+    <recicla-auth v-if="!carregando && !user" @authenticated="entrar"></recicla-auth>
+    <recicla-management v-if="gerenciar && user" :user="user" @close="gerenciar=false" @updated="atualizar"></recicla-management>
+    <div class="dashboard" id="dashboard" v-show="user">
       <header class="topbar flex items-center justify-between gap-4">
         <div class="flex items-center gap-3">
           <span class="brand-mark" aria-hidden="true"><svg width="21" height="21" viewBox="0 0 24 24" fill="none"><path d="M6 17c7 1 12-4 12-12C10 5 4 8 6 17Z" stroke="currentColor" stroke-width="1.6"/><path d="m5 20 9-10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span>
@@ -199,7 +205,8 @@
           <span class="topbar-label">GESTÃO MUNICIPAL</span>
         </div>
         <div class="header-actions">
-          <span class="municipality">Coxim <span class="muted-detail text-[#8b9786]">/ Mato Grosso do Sul</span></span>
+          <a class="header-link" href="/coletor">Coletor</a><button class="header-link" type="button" @click="gerenciar=true">Cadastros</button><button class="header-link" @click="sair" type="button">Sair</button>
+          <span class="municipality">{{ dados.municipio }} <span class="muted-detail text-[#8b9786]">/ Mato Grosso do Sul</span></span>
           <button class="theme-toggle" type="button" @click="alternarTema" :aria-pressed="modoEscuro" :title="modoEscuro ? 'Alternar para modo claro' : 'Alternar para modo escuro'" aria-label="Modo escuro">
             <svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M20.4 14.1A8.6 8.6 0 0 1 9.9 3.6a8.6 8.6 0 1 0 10.5 10.5Z"/></svg>
             <span class="theme-toggle-label">Modo escuro</span>
@@ -208,13 +215,14 @@
       </header>
 
       <main class="content">
+        <p v-if="erroDados" class="app-message" role="alert">{{ erroDados }}</p>
         <div class="intro flex items-center justify-between gap-4">
           <div>
             <div class="eyebrow">Painel de resultados</div>
             <h1>Coleta que transforma.</h1>
             <p class="subtitle m-0">Visão da coleta seletiva de {{ dados.municipio }} para a gestão municipal.</p>
           </div>
-          <div class="period flex items-center gap-2"><svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="4" y="5" width="16" height="16" rx="3"/><path d="M8 3v4m8-4v4M4 11h16"/></svg>{{ dados.periodo.rotulo }}</div>
+          <form class="period-control" @submit.prevent="atualizar"><label>De<input class="period-input" v-model="inicio" type="date" required></label><label>Até<input class="period-input" v-model="fim" type="date" required></label><button class="header-link" type="submit" :disabled="atualizando">Atualizar</button></form>
         </div>
 
         <div class="workspace">
@@ -224,7 +232,7 @@
               <span class="count-badge">{{ dados.pontos.length }} pontos</span>
             </div>
             <div class="map-area">
-              <div id="map" aria-label="Mapa com os 15 pontos demonstrativos de coleta em Coxim"></div>
+              <div id="map" aria-label="Mapa dos pontos de coleta do município"></div>
               <button class="map-fit" type="button" @click="enquadrar" :disabled="!!erroMapa">Ver todos os pontos</button>
               <div v-if="arquivoLocal || erroMapa || avisoMapa" class="map-warning" role="status">
                 <template v-if="arquivoLocal">Para carregar o mapa online, abra o HTML pelo <strong>Live Server</strong> do VS Code ou por um servidor HTTP. A abertura por duplo clique não envia a origem exigida pelo OpenStreetMap. <a href="https://www.openstreetmap.org/#map=14/-18.5060/-54.7510" target="_blank" rel="noopener">Ver Coxim no OpenStreetMap</a>.</template>
@@ -243,7 +251,7 @@
 
           <section class="right-column" aria-label="Indicadores e distribuição dos materiais">
             <article class="total-card" aria-labelledby="total-label">
-              <div class="flex items-center justify-between"><h2 class="metric-label m-0" id="total-label">Total coletado no período</h2><span class="text-[10px] text-[#c0d9c4]">COXIM · MS</span></div>
+              <div class="flex items-center justify-between"><h2 class="metric-label m-0" id="total-label">Total coletado no período</h2><span class="text-[10px] text-[#c0d9c4]">{{ dados.municipio }} · MS</span></div>
               <div class="total-value" data-testid="total-kg">{{ numero(totalKg) }} <span class="total-unit">kg</span></div>
               <div class="metric-note">Materiais encaminhados para reciclagem</div>
             </article>
@@ -261,7 +269,7 @@
         </div>
       </main>
       <footer class="footer flex items-center justify-between gap-4">
-        <span>Dados demonstrativos · pontos, coordenadas e quantidades ilustrativos.</span>
+        <span>{{ dados.entregas || 0 }} entrega(s) recebida(s) · {{ dados.pontos.some(p => p.demonstrativo !== false) ? 'Confirme os pontos demonstrativos em Cadastros.' : 'Pontos cadastrados pelo gestor.' }}</span>
         <div class="flex items-center gap-4"><span>{{ dados.periodo.rotulo }} · Recicla+</span><button v-if="podeTelaCheia" class="fullscreen" type="button" @click="telaCheia">{{ emTelaCheia ? 'Sair da tela cheia' : 'Apresentar em tela cheia' }}</button></div>
       </footer>
       <p v-if="avisoTelaCheia" class="sr-only" role="status">{{ avisoTelaCheia }}</p>
@@ -305,10 +313,11 @@
       startup.textContent = 'Não foi possível carregar o Vue. Verifique sua conexão e permita os recursos de cdn.jsdelivr.net; depois recarregue a página.';
       return;
     }
-    const { createApp, ref, computed, onMounted, onUnmounted } = Vue;
+    const { createApp, ref, reactive, computed, onMounted, onUnmounted, nextTick } = Vue;
     const app = createApp({
       setup() {
-        const dados = JSON.parse(document.getElementById('recicla-data').textContent);
+        const dados = reactive(JSON.parse(document.getElementById('recicla-data').textContent));
+        dados.pontos.forEach(p => { Object.keys(p.coletas).forEach(k => { p.coletas[k] = 0; }); });
         // Impede que valores ausentes ou negativos gerem números inconsistentes.
         const ids = new Set();
         const materialIds = new Set(dados.materiais.map(m => m.id));
@@ -319,7 +328,7 @@
           if (Object.keys(p.coletas).some(id => !materialIds.has(id))) throw new Error('Material desconhecido no JSON.');
           dados.materiais.forEach(m => { if (!Number.isFinite(p.coletas[m.id]) || p.coletas[m.id] < 0) throw new Error('Quantidade inválida no JSON.'); });
         });
-        const numero = value => new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 2 }).format(value);
+        const numero = value => new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 3 }).format(value);
         const materiais = computed(() => dados.materiais.map(m => ({ ...m, kg: dados.pontos.reduce((sum, p) => sum + p.coletas[m.id], 0) })));
         const totalKg = computed(() => materiais.value.reduce((sum, m) => sum + m.kg, 0));
         const lider = computed(() => materiais.value.reduce((a, b) => b.kg > a.kg ? b : a));
@@ -354,7 +363,7 @@
           atualizarCoresGrafico();
         };
         const markers = new Map();
-        const enquadrar = () => { if (map) { map.closePopup(); pontoSelecionado.value = ''; map.invalidateSize(); map.fitBounds(dados.pontos.map(p => [p.lat, p.lng]), { padding: [40, 40], maxZoom: 14, animate: false }); } };
+        const enquadrar = () => { if (map && dados.pontos.length && user.value) { map.closePopup(); pontoSelecionado.value = ''; map.invalidateSize(); map.fitBounds(dados.pontos.map(p => [p.lat, p.lng]), { padding: [40, 40], maxZoom: 14, animate: false }); } };
         const abrirPonto = () => { const marker = markers.get(Number(pontoSelecionado.value)); if (marker) { map.panTo(marker.getLatLng(), { animate: false }); marker.openPopup(); } };
         const atualizarTelaCheia = () => { emTelaCheia.value = !!document.fullscreenElement; };
         const telaCheia = async () => {
@@ -371,11 +380,44 @@
           add('popup-total', `${numero(Object.values(p.coletas).reduce((a, b) => a + b, 0))} kg no período`);
           const list = add('popup-materials', '');
           dados.materiais.forEach(m => { const label = document.createElement('span'), value = document.createElement('span'); label.textContent = m.nome; value.textContent = `${numero(p.coletas[m.id])} kg`; list.append(label, value); });
-          add('popup-meta', `${dados.periodo.rotulo} · ponto demonstrativo`);
+          add('popup-meta', `${dados.periodo.rotulo}${p.demonstrativo === false ? '' : ' · ponto demonstrativo'}`);
           return root;
         };
+        const user = ref(null), carregando = ref(true), gerenciar = ref(false), erroDados = ref(''), atualizando = ref(false);
+        const hoje = new Intl.DateTimeFormat('sv-SE', { timeZone: 'America/Campo_Grande' }).format(new Date());
+        const inicio = ref(hoje.slice(0, 7) + '-01'), fim = ref(hoje);
+        let timer;
+        const atualizarMapa = () => {
+          if (!map) return;
+          markers.forEach(marker => map.removeLayer(marker)); markers.clear();
+          dados.pontos.forEach(p => {
+            const icon = L.divIcon({ className: 'point-marker', html: `<span class="point-number${p.ativo ? '' : ' maintenance'}">${String(p.id).padStart(2, '0')}</span>`, iconSize: [30,30], iconAnchor:[15,15], popupAnchor:[0,-16] });
+            const marker = L.marker([p.lat,p.lng], {icon, title:p.nome, alt:p.nome, keyboard:true}).addTo(map).bindPopup(popupDoPonto(p), {maxWidth:270});
+            marker.on('popupopen', () => {pontoSelecionado.value=p.id;}); markers.set(p.id,marker);
+          });
+        };
+        const atualizar = async () => {
+          if (!user.value || atualizando.value) return;
+          atualizando.value=true;
+          try {
+            const result=await ReciclaAPI.request('painel',{query:{inicio:inicio.value,fim:fim.value}});
+            Object.assign(dados,result); erroDados.value=''; await nextTick();
+            if (chart) {chart.data.labels=materiais.value.map(m=>m.nome);chart.data.datasets[0].data=materiais.value.map(m=>m.kg);atualizarCoresGrafico();}
+            atualizarMapa(); map?.invalidateSize();
+          } catch(e) {erroDados.value=e.message;if(e.status===401)user.value=null;}
+          finally {atualizando.value=false;}
+        };
+        const entrar = async account => {
+          if(account.role==='coletor'){location.assign('/coletor');return;}
+          user.value=account; await atualizar(); await nextTick(); enquadrar();
+        };
+        const sair = async () => {try{await ReciclaAPI.logout();user.value=null;gerenciar.value=false;}catch(e){erroDados.value=e.message;}};
+        const retomar = () => {if(!document.hidden)atualizar();};
         onMounted(() => {
           startup.remove();
+          ReciclaAPI.session().then(account=>{if(account)return entrar(account);}).catch(e=>{erroDados.value=e.message;}).finally(()=>{carregando.value=false;});
+          timer=setInterval(()=>{if(!document.hidden)atualizar();},15000);
+          window.addEventListener('online',atualizar);document.addEventListener('visibilitychange',retomar);
           document.addEventListener('fullscreenchange', atualizarTelaCheia);
           if (window.L) {
             map = L.map('map', { scrollWheelZoom: false, zoomControl: true });
@@ -425,10 +467,11 @@
             });
           } else erroGrafico.value = 'Não foi possível carregar o Chart.js. Verifique a conexão e recarregue a página.';
         });
-        onUnmounted(() => { resizeObserver?.disconnect(); map?.remove(); chart?.destroy(); document.removeEventListener('fullscreenchange', atualizarTelaCheia); });
-        return { dados, materiais, totalKg, lider, ativos, numero, percentual, resumoGrafico, pontoSelecionado, erroMapa, avisoMapa, erroGrafico, enquadrar, abrirPonto, telaCheia, emTelaCheia, podeTelaCheia, avisoTelaCheia, modoEscuro, alternarTema, arquivoLocal };
+        onUnmounted(() => { clearInterval(timer);window.removeEventListener('online',atualizar);document.removeEventListener('visibilitychange',retomar);resizeObserver?.disconnect(); map?.remove(); chart?.destroy(); document.removeEventListener('fullscreenchange', atualizarTelaCheia); });
+        return { user, carregando, gerenciar, erroDados, atualizando, inicio, fim, entrar, sair, atualizar, dados, materiais, totalKg, lider, ativos, numero, percentual, resumoGrafico, pontoSelecionado, erroMapa, avisoMapa, erroGrafico, enquadrar, abrirPonto, telaCheia, emTelaCheia, podeTelaCheia, avisoTelaCheia, modoEscuro, alternarTema, arquivoLocal };
       }
     });
+    app.component('recicla-auth', ReciclaAuth).component('recicla-management', ReciclaManagement);
     app.config.errorHandler = error => {
       console.error(error);
       if (!startup.isConnected) document.body.prepend(startup);

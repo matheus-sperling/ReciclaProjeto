@@ -1,0 +1,8 @@
+{
+  "name": "recicla-mais",
+  "version": "0.2.0",
+  "private": true,
+  "engines": { "node": "24.x" },
+  "scripts": { "test": "node --test tests/*.test.cjs" },
+  "dependencies": { "@vercel/blob": "2.8.0", "jose": "6.2.12" }
+}
