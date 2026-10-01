@@ -1,5 +1,10 @@
 import { beforeAll, afterAll, describe, it, expect } from "vitest";
-import { makeClient, scoped } from "../server/db";
+import {
+  disconnect,
+  makeClient,
+  scoped,
+  verifyRuntimeRoles,
+} from "../server/db";
 import { createDomain, municipalityScope } from "../server/domain";
 import { ids, actor } from "./fixture";
 const urls = [
@@ -23,13 +28,15 @@ afterAll(async () => {
     db.$disconnect(),
     auth.$disconnect(),
     owner.$disconnect(),
+    disconnect(),
   ]);
 });
 beforeAll(async () => {
+  await verifyRuntimeRoles();
   const r = await db.$queryRaw<
     Array<{ current_user: string }>
   >`SELECT current_user`;
-  expect(r[0].current_user).toBe("recicla_app");
+  expect(r[0].current_user).toBe("recicla_app_login");
 });
 describe("Isolamento municipal com a credencial operacional", () => {
   it("retorna zero registros sem contexto, mesmo sem filtro", async () => {

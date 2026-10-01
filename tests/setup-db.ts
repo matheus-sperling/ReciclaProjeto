@@ -26,7 +26,14 @@ try {
       ),
     );
   await owner.query(
-    "ALTER ROLE recicla_app LOGIN PASSWORD 'teste-app-local'; ALTER ROLE recicla_auth LOGIN PASSWORD 'teste-auth-local'",
+    `DO $$ BEGIN
+      IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname='recicla_app_login') THEN CREATE ROLE recicla_app_login; END IF;
+      IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname='recicla_auth_login') THEN CREATE ROLE recicla_auth_login; END IF;
+    END $$;
+    ALTER ROLE recicla_app NOLOGIN; ALTER ROLE recicla_auth NOLOGIN;
+    ALTER ROLE recicla_app_login LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD 'teste-app-local';
+    ALTER ROLE recicla_auth_login LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD 'teste-auth-local';
+    GRANT recicla_app TO recicla_app_login; GRANT recicla_auth TO recicla_auth_login;`,
   );
 } finally {
   await owner.end();

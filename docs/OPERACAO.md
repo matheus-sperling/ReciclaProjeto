@@ -6,14 +6,14 @@ Crie um projeto PostgreSQL para a produção, sem importar os registros antigos 
 
 O proprietário recebe a conexão direta (sem pool) em `DIRECT_URL`, apenas num terminal ou job protegido de migração. Execute `npm ci`, `npm run db:generate`, `npm run db:migrate`. Isso cria as tabelas, vínculos compostos, materiais originais e políticas RLS. Consulte a [documentação de RLS](https://www.postgresql.org/docs/current/ddl-rowsecurity.html).
 
-Defina `APP_DB_PASSWORD` e `AUTH_DB_PASSWORD` com senhas aleatórias distintas de 32 a 128 caracteres base64url e execute `npm run db:provision`. As roles criadas são `recicla_app` e `recicla_auth`, sem propriedade de tabelas, superusuário ou BYPASSRLS. A primeira acessa os registros municipais sob RLS. A segunda acessa somente contas, autenticação, vínculo da cidade e escrita de auditoria; o servidor controla cada operação administrativa de equipe. A credencial de autenticação é sensível e não deve aparecer no frontend.
+Defina `APP_DB_PASSWORD` e `AUTH_DB_PASSWORD` com senhas aleatórias distintas de 32 a 128 caracteres base64url e execute uma vez `npm run db:provision` em um ambiente administrativo protegido, com `DIRECT_URL` apontando para o banco. O procedimento cria `recicla_app_login` e `recicla_auth_login` com `NOBYPASSRLS`, sem privilégios de criação, e concede a cada uma sua role de grupo sem login. Não crie logins operacionais pela interface do Neon sem confirmar `NOBYPASSRLS`: logins com `BYPASSRLS` anulam o isolamento municipal. A role de aplicação acessa registros municipais sob RLS. A role de autenticação acessa somente contas, autenticação, vínculo da cidade e escrita de auditoria; o servidor controla cada operação administrativa de equipe. A credencial de autenticação é sensível e não deve aparecer no frontend.
 
 Configure na Vercel, individualmente em Production e Preview:
 
 | Variável             | Valor                                                                         |
 | -------------------- | ----------------------------------------------------------------------------- |
-| `DATABASE_URL`       | Conexão PostgreSQL usando `recicla_app`; SSL obrigatório no Neon              |
-| `AUTH_DATABASE_URL`  | Conexão PostgreSQL usando `recicla_auth`; SSL obrigatório no Neon             |
+| `DATABASE_URL`       | Conexão PostgreSQL usando `recicla_app_login`; SSL no Neon                    |
+| `AUTH_DATABASE_URL`  | Conexão PostgreSQL usando `recicla_auth_login`; SSL no Neon                   |
 | `BETTER_AUTH_SECRET` | Pelo menos 32 bytes aleatórios, exclusivos por ambiente                       |
 | `APP_ORIGIN`         | Origem HTTPS exata, sem barra final, por exemplo `https://recicla.exemplo.br` |
 

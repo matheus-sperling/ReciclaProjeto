@@ -42,24 +42,63 @@ export function verifyRuntimeRoles() {
       Array<{
         rolname: string;
         rolsuper: boolean;
+        rolcreatedb: boolean;
+        rolcreaterole: boolean;
         rolbypassrls: boolean;
+        rolinherit: boolean;
+        rolreplication: boolean;
+        app_role_member: boolean;
         owns: boolean;
       }>
     >`
-      SELECT r.rolname,r.rolsuper,r.rolbypassrls,EXISTS(SELECT 1 FROM pg_class c WHERE c.relowner=r.oid AND c.relname IN ('Municipio','Morador','Ponto','Entrega','user')) AS owns
-      FROM pg_roles r WHERE r.rolname=current_user`;
+      SELECT r.rolname,r.rolsuper,r.rolcreatedb,r.rolcreaterole,
+        r.rolbypassrls,r.rolinherit,r.rolreplication,
+        pg_has_role(r.oid,'recicla_app','USAGE') AS app_role_member,
+        EXISTS(SELECT 1 FROM pg_class c WHERE c.relowner=r.oid) AS owns
+      FROM pg_roles r
+      WHERE r.rolname=current_user AND r.rolname='recicla_app_login'`;
     if (
       rows.length !== 1 ||
-      rows[0].rolname !== "recicla_app" ||
       rows[0].rolsuper ||
+      rows[0].rolcreatedb ||
+      rows[0].rolcreaterole ||
       rows[0].rolbypassrls ||
+      !rows[0].rolinherit ||
+      rows[0].rolreplication ||
+      !rows[0].app_role_member ||
       rows[0].owns
     )
       throw new Error("UNSAFE_DATABASE_ROLE");
     const auth = await authDb().$queryRaw<
-      Array<{ current_user: string }>
-    >`SELECT current_user`;
-    if (auth[0]?.current_user !== "recicla_auth")
+      Array<{
+        rolname: string;
+        rolsuper: boolean;
+        rolcreatedb: boolean;
+        rolcreaterole: boolean;
+        rolbypassrls: boolean;
+        rolinherit: boolean;
+        rolreplication: boolean;
+        auth_role_member: boolean;
+        owns: boolean;
+      }>
+    >`
+      SELECT r.rolname,r.rolsuper,r.rolcreatedb,r.rolcreaterole,
+        r.rolbypassrls,r.rolinherit,r.rolreplication,
+        pg_has_role(r.oid,'recicla_auth','USAGE') AS auth_role_member,
+        EXISTS(SELECT 1 FROM pg_class c WHERE c.relowner=r.oid) AS owns
+      FROM pg_roles r
+      WHERE r.rolname=current_user AND r.rolname='recicla_auth_login'`;
+    if (
+      auth.length !== 1 ||
+      auth[0].rolsuper ||
+      auth[0].rolcreatedb ||
+      auth[0].rolcreaterole ||
+      auth[0].rolbypassrls ||
+      !auth[0].rolinherit ||
+      auth[0].rolreplication ||
+      !auth[0].auth_role_member ||
+      auth[0].owns
+    )
       throw new Error("UNSAFE_AUTH_DATABASE_ROLE");
   })().catch((error) => {
     rolesVerified = undefined;
