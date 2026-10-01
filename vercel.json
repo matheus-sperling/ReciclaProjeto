@@ -1,0 +1,11 @@
+{
+  "rewrites": [
+    { "source": "/coletor", "destination": "/coletor/index.html" }
+  ],
+  "headers": [
+    {
+      "source": "/coletor-sw.js",
+      "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
+    }
+  ]
+}

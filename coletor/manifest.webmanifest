@@ -1,0 +1,18 @@
+{
+  "id": "/coletor",
+  "name": "Recicla+ — Coletor",
+  "short_name": "Recicla+",
+  "description": "Registro local de entregas de materiais recicláveis em Coxim.",
+  "lang": "pt-BR",
+  "start_url": "/coletor",
+  "scope": "/coletor",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#111e19",
+  "theme_color": "#174f3a",
+  "icons": [
+    { "src": "/coletor/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/coletor/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/coletor/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}
