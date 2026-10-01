@@ -25,6 +25,13 @@ async function login(page: Page, email: string) {
   await page.getByRole("button", { name: "Entrar", exact: true }).click();
   await expect(page).toHaveURL(/\/(painel|coletor)$/);
 }
+async function expectMapCenter(page: Page, lat: number, lng: number) {
+  const text = await page.locator(".point-picker-selection").innerText();
+  const coordinates = text.split("·")[1]?.split(",").map(Number);
+  // Leaflet rounds projected centers to pixels; verify the city, not subpixel precision.
+  expect(coordinates?.[0]).toBeCloseTo(lat, 3);
+  expect(coordinates?.[1]).toBeCloseTo(lng, 3);
+}
 for (const viewport of [
   { width: 1440, height: 1000 },
   { width: 390, height: 844 },
@@ -94,6 +101,38 @@ for (const viewport of [
           fullPage: true,
           animations: "disabled",
         });
+        if (path === "/pontos") {
+          await page
+            .getByRole("button", {
+              name: "Cadastrar ponto de coleta",
+              exact: true,
+            })
+            .click();
+          await expect(page.locator(".point-picker")).toHaveAttribute(
+            "data-municipio-ibge",
+            "5003306",
+          );
+          await page
+            .getByRole("button", {
+              name: "Marcar no centro do mapa",
+              exact: true,
+            })
+            .click();
+          await expectMapCenter(page, -18.5033, -54.760601);
+          expect(
+            await page
+              .getByRole("dialog")
+              .evaluate((el) => el.scrollWidth <= el.clientWidth + 1),
+          ).toBe(true);
+          await page.screenshot({
+            path: `test-results/point-picker-${viewport.width}-${theme}.png`,
+            fullPage: true,
+            animations: "disabled",
+          });
+          await page
+            .getByRole("button", { name: "Fechar", exact: true })
+            .click();
+        }
       }
       expect(errors).toEqual([]);
       await context.close();
@@ -121,6 +160,71 @@ test("O tema acompanha login, coletor, painel e saída da conta", async ({
   await expect(page.locator("html")).toHaveClass(/dark/);
   await page.getByRole("button", { name: "Ativar modo claro" }).click();
   await expect(page.locator("html")).not.toHaveClass(/dark/);
+  await context.close();
+});
+
+test("Gestor cadastra pelo clique no mapa, move o marcador e exclui o ponto", async ({
+  browser,
+}) => {
+  const context = await browser.newContext({ storageState: storage });
+  const page = await context.newPage();
+  const name = "Ponto cadastrado no mapa " + Date.now();
+  await page.goto("/pontos");
+  await page
+    .getByRole("button", { name: "Cadastrar ponto de coleta", exact: true })
+    .click();
+  await page.getByLabel("Nome", { exact: true }).fill(name);
+  await page
+    .getByLabel("Endereço ou referência", { exact: true })
+    .fill("Praça do teste");
+  await page
+    .getByRole("button", { name: "Salvar cadastro", exact: true })
+    .click();
+  await expect(page.getByRole("alert")).toContainText(
+    "Selecione a localização do ponto no mapa.",
+  );
+  const map = page.locator(".point-picker-map");
+  await map.click({ position: { x: 210, y: 150 } });
+  await expect(page.locator(".point-picker-selection")).toContainText(
+    "Local selecionado",
+  );
+  const position = await page.locator(".point-picker-selection").innerText();
+  await map.click({ position: { x: 260, y: 170 } });
+  await expect(page.locator(".point-picker-selection")).not.toHaveText(
+    position,
+  );
+  const response = page.waitForResponse(
+    (r) => r.url().includes("action=pontos") && r.request().method() === "POST",
+  );
+  await page
+    .getByRole("button", { name: "Salvar cadastro", exact: true })
+    .click();
+  const { ponto } = await (await response).json();
+  expect(ponto.municipioId).toBe(ids.a);
+  expect(ponto.lat).toBeGreaterThan(-18.6);
+  expect(ponto.lat).toBeLessThan(-18.4);
+  await expect(page.getByText("Cadastro salvo com sucesso.")).toBeVisible();
+  await page
+    .getByRole("button", { name: "Editar " + name, exact: true })
+    .click();
+  await expect(page.locator(".point-picker-selection")).toContainText(
+    `${ponto.lat.toFixed(6)}, ${ponto.lng.toFixed(6)}`,
+  );
+  await page.getByRole("button", { name: "Fechar", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Excluir " + name, exact: true })
+    .click();
+  await expect(page.getByRole("dialog")).toContainText(
+    "Excluir ponto de coleta",
+  );
+  await page.getByRole("button", { name: "Cancelar", exact: true }).click();
+  await expect(page.getByText(name, { exact: true })).toBeVisible();
+  await page
+    .getByRole("button", { name: "Excluir " + name, exact: true })
+    .click();
+  await page.getByRole("button", { name: "Excluir", exact: true }).click();
+  await expect(page.getByText("Ponto de coleta excluído.")).toBeVisible();
+  await expect(page.getByText(name, { exact: true })).toHaveCount(0);
   await context.close();
 });
 
@@ -307,6 +411,7 @@ test("Administrador: primeiro acesso, autenticador e telas da plataforma nos doi
     viewport: { width: 1440, height: 1000 },
   });
   const page = await context.newPage();
+  page.setDefaultTimeout(15000);
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto("/entrar");
@@ -411,6 +516,99 @@ test("Administrador: primeiro acesso, autenticador e telas da plataforma nos doi
         });
       }
     }
+  // The administrator changes the explicitly selected city before opening the map.
+  await page.goto("/municipios");
+  await page
+    .getByRole("row")
+    .filter({ hasText: "Campo Grande" })
+    .getByRole("button", { name: "Abrir", exact: true })
+    .click();
+  if ((await page.viewportSize())!.width === 390)
+    await page.getByRole("button", { name: "Abrir menu", exact: true }).click();
+  await page.locator('.nav-link[href="/pontos"]').click();
+  await page
+    .getByRole("button", { name: "Cadastrar ponto de coleta", exact: true })
+    .click();
+  await expect(page.locator(".point-picker")).toHaveAttribute(
+    "data-municipio-ibge",
+    "5002704",
+  );
+  const pointName = "Ponto do administrador " + Date.now();
+  await page.getByLabel("Nome", { exact: true }).fill(pointName);
+  await page
+    .getByLabel("Endereço ou referência", { exact: true })
+    .fill("Teste em Campo Grande");
+  await page
+    .getByRole("button", { name: "Marcar no centro do mapa", exact: true })
+    .click();
+  await expectMapCenter(page, -20.462601, -54.608601);
+  await page
+    .getByRole("button", { name: "Salvar cadastro", exact: true })
+    .click();
+  await expect(page.getByText("Cadastro salvo com sucesso.")).toBeVisible();
+  await page
+    .getByRole("button", { name: "Excluir " + pointName, exact: true })
+    .click();
+  await page.getByRole("button", { name: "Excluir", exact: true }).click();
+  await expect(page.getByText("Ponto de coleta excluído.")).toBeVisible();
+  if ((await page.viewportSize())!.width === 390)
+    await page.getByRole("button", { name: "Abrir menu", exact: true }).click();
+  await page.locator('.nav-link[href="/equipe"]').click();
+  await page
+    .getByRole("button", { name: "Cadastrar integrante", exact: true })
+    .click();
+  const accountName = "Conta para exclusão " + Date.now(),
+    email = "exclusao-" + Date.now() + "@teste.invalid";
+  await page.getByLabel("Nome", { exact: true }).fill(accountName);
+  await page.getByLabel("E-mail", { exact: true }).fill(email);
+  await page.getByLabel("Perfil", { exact: true }).selectOption("gestor");
+  await page
+    .getByRole("button", { name: "Salvar cadastro", exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "Acesso preparado", exact: true }),
+  ).toBeVisible();
+  const temporaryPassword = await page
+    .locator(".temporary-password")
+    .innerText();
+  await page
+    .getByRole("button", { name: "Já guardei a senha", exact: true })
+    .click();
+  const removedContext = await browser.newContext();
+  const removedPage = await removedContext.newPage();
+  await removedPage.goto("/entrar");
+  await removedPage.getByLabel("E-mail", { exact: true }).fill(email);
+  await removedPage.locator("#password").fill(temporaryPassword);
+  await removedPage
+    .getByRole("button", { name: "Entrar", exact: true })
+    .click();
+  await expect(
+    removedPage.getByRole("heading", {
+      name: "Prepare seu acesso",
+      exact: true,
+    }),
+  ).toBeVisible();
+  await page
+    .getByRole("button", {
+      name: "Excluir conta de " + accountName,
+      exact: true,
+    })
+    .click();
+  await expect(page.getByRole("dialog")).toContainText(
+    "O acesso será revogado imediatamente",
+  );
+  await page.getByRole("button", { name: "Excluir", exact: true }).click();
+  await expect(
+    page.getByText("Conta excluída. O acesso foi revogado."),
+  ).toBeVisible();
+  await expect(page.getByText(accountName, { exact: true })).toHaveCount(0);
+  const expired = removedPage.waitForResponse((r) =>
+    r.url().includes("action=session"),
+  );
+  await removedPage.reload();
+  expect((await expired).status()).toBe(401);
+  await expect(removedPage).toHaveURL(/\/entrar/);
+  await removedContext.close();
   expect(errors).toEqual([]);
   await context.close();
 });

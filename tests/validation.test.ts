@@ -4,9 +4,22 @@ import {
   pesoGramas,
   rangeDatas,
   contaSchema,
+  municipioSchema,
 } from "../shared/validation";
+import { municipiosMS, sedeMunicipal } from "../shared/municipios";
 import { ids } from "./fixture";
 describe("Validação compartilhada", () => {
+  it("localiza as sedes de MS sem depender de geocodificação externa", () => {
+    expect(municipiosMS).toHaveLength(79);
+    expect(new Set(municipiosMS.map((c) => c.ibge)).size).toBe(79);
+    expect(sedeMunicipal("  coxim  ")?.lat).toBeCloseTo(-18.5033, 4);
+    expect(sedeMunicipal("PARAISO DAS AGUAS")?.nome).toBe("Paraíso das Águas");
+    expect(sedeMunicipal("Coxim", "MT")).toBeUndefined();
+    expect(municipioSchema.parse({ nome: "agua clara" }).nome).toBe(
+      "Água Clara",
+    );
+    expect(() => municipioSchema.parse({ nome: "Cidade inventada" })).toThrow();
+  });
   it("usa somente QR UUID sem dados pessoais", () => {
     expect(lerQr("recicla:morador:" + ids.ra)).toBe(ids.ra);
     for (const text of [

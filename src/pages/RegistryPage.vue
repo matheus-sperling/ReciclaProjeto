@@ -19,6 +19,10 @@ import QRious from "qrious";
 import UiDialog from "../components/UiDialog.vue";
 import PageState from "../components/PageState.vue";
 import Pagination from "../components/Pagination.vue";
+import PointLocationPicker, {
+  type PointLocation,
+} from "../components/PointLocationPicker.vue";
+import { municipiosMS } from "../../shared/municipios";
 import { request, state, selectMunicipio } from "../lib/api";
 import { roleLabel, type Municipio } from "../../shared/contracts";
 type Kind = "municipios" | "moradores" | "pontos" | "equipe";
@@ -53,7 +57,7 @@ const descriptions = {
   municipios: "Organize as cidades e acompanhe cada operação.",
   moradores:
     "Cadastros atualizados, identificação simples e coleta organizada.",
-  pontos: "Mantenha os locais de entrega e suas coordenadas atualizados.",
+  pontos: "Organize os locais de entrega e marque cada ponto no mapa.",
   equipe: "Administre gestores e coletores do seu município.",
 };
 const rows = ref<Row[]>([]),
@@ -74,12 +78,11 @@ const rows = ref<Row[]>([]),
   temporary = ref(""),
   qrResident = ref<Row | null>(null),
   qrCanvas = ref<HTMLCanvasElement>();
+const pointLocation = ref<PointLocation | null>(null);
 const form = reactive({
   nome: "",
   bairro: "",
   local: "",
-  lat: -20.4697,
-  lng: -54.6201,
   email: "",
   role: "coletor" as "gestor" | "coletor",
   ativo: true,
@@ -144,12 +147,14 @@ onBeforeUnmount(() => {
 function edit(row: Row | null) {
   editing.value = row;
   formError.value = "";
+  pointLocation.value =
+    row?.lat !== undefined && row.lng !== undefined
+      ? { lat: row.lat, lng: row.lng }
+      : null;
   Object.assign(form, {
     nome: row?.nome || "",
     bairro: row?.bairro || "",
     local: row?.local || "",
-    lat: row?.lat ?? -20.4697,
-    lng: row?.lng ?? -54.6201,
     email: row?.email || "",
     role: row?.role || "coletor",
     ativo: row?.ativo ?? true,
@@ -164,11 +169,12 @@ function payload() {
     case "moradores":
       return { nome: form.nome, bairro: form.bairro, ativo: form.ativo };
     case "pontos":
+      if (!pointLocation.value)
+        throw new Error("Selecione a localização do ponto no mapa.");
       return {
         nome: form.nome,
         local: form.local,
-        lat: Number(form.lat),
-        lng: Number(form.lng),
+        ...pointLocation.value,
         ativo: form.ativo,
       };
     case "equipe":
@@ -221,6 +227,19 @@ async function confirm() {
     let body: Record<string, unknown>;
     if (props.kind === "equipe")
       body = { id: row.id, [action]: action === "ativo" ? !row.ativo : true };
+    else if (props.kind === "pontos")
+      body =
+        action === "excluir"
+          ? { id: row.id, version: row.version }
+          : {
+              id: row.id,
+              version: row.version,
+              nome: row.nome,
+              local: row.local,
+              lat: row.lat,
+              lng: row.lng,
+              ativo: !row.ativo,
+            };
     else {
       Object.assign(form, row);
       body = {
@@ -234,7 +253,8 @@ async function confirm() {
       temporaryPassword?: string;
       municipio?: Municipio;
     }>(props.kind, {
-      method: "PATCH",
+      method:
+        props.kind === "pontos" && action === "excluir" ? "DELETE" : "PATCH",
       body,
       scope: props.kind !== "municipios",
     });
@@ -242,7 +262,12 @@ async function confirm() {
     if (result.municipio && result.municipio.id === state.municipio?.id)
       selectMunicipio(result.municipio);
     confirmation.value = null;
-    notice.value = "Alteração concluída.";
+    notice.value =
+      action === "excluir"
+        ? props.kind === "pontos"
+          ? "Ponto de coleta excluído."
+          : "Conta excluída. O acesso foi revogado."
+        : "Alteração concluída.";
     await load();
   } catch (e) {
     formError.value = (e as Error).message;
@@ -439,11 +464,19 @@ function choose(row: Row) {
                     ><button
                       class="icon-button danger"
                       :disabled="!writable || row.id === state.user?.id"
-                      :aria-label="'Remover ' + row.nome"
+                      :aria-label="'Excluir conta de ' + row.nome"
                       @click="ask(row, 'excluir')"
                     >
-                      <Trash2 :size="16" /></button
-                  ></template>
+                      <Trash2 :size="16" /></button></template
+                  ><button
+                    v-if="kind === 'pontos'"
+                    class="icon-button danger"
+                    :disabled="!writable"
+                    :aria-label="'Excluir ' + row.nome"
+                    @click="ask(row, 'excluir')"
+                  >
+                    <Trash2 :size="16" />
+                  </button>
                 </div>
               </td>
             </tr>
@@ -463,17 +496,45 @@ function choose(row: Row) {
   </template>
   <UiDialog
     v-model:open="open"
+    :wide="kind === 'pontos'"
     :title="(editing ? 'Editar ' : 'Cadastrar ') + singular[kind]"
     :description="
       kind === 'equipe'
         ? 'A conta pertence apenas a este município. A senha temporária será exibida após a criação.'
-        : 'Use informações atualizadas para facilitar a operação.'
+        : kind === 'pontos'
+          ? 'Informe o nome e a referência do local, depois clique no mapa para marcar o ponto.'
+          : 'Use informações atualizadas para facilitar a operação.'
     "
   >
     <form @submit.prevent="save">
       <div class="form-grid">
         <label class="full-width"
-          >Nome<input
+          >Nome<select
+            v-if="kind === 'municipios'"
+            v-model="form.nome"
+            aria-label="Nome"
+            required
+          >
+            <option value="" disabled>Selecione o município</option>
+            <option
+              v-for="city in municipiosMS"
+              :key="city.ibge"
+              :value="city.nome"
+            >
+              {{ city.nome }}
+            </option>
+            <option
+              v-if="
+                form.nome &&
+                !municipiosMS.some((city) => city.nome === form.nome)
+              "
+              :value="form.nome"
+              disabled
+            >
+              {{ form.nome }} — selecione um município de MS
+            </option></select
+          ><input
+            v-else
             v-model="form.nome"
             required
             minlength="2"
@@ -490,22 +551,12 @@ function choose(row: Row) {
               required
               minlength="2"
               maxlength="180" /></label
-          ><label
-            >Latitude<input
-              v-model="form.lat"
-              type="number"
-              step="any"
-              min="-90"
-              max="90"
-              required /></label
-          ><label
-            >Longitude<input
-              v-model="form.lng"
-              type="number"
-              step="any"
-              min="-180"
-              max="180"
-              required /></label></template
+          ><PointLocationPicker
+            v-if="open && state.municipio"
+            v-model="pointLocation"
+            :key="state.municipio.id + ':' + (editing?.id || 'new')"
+            :municipio="state.municipio"
+            :disabled="saving" /></template
         ><template v-if="kind === 'equipe'"
           ><label class="full-width"
             >E-mail<input
@@ -516,17 +567,20 @@ function choose(row: Row) {
               maxlength="254"
               autocomplete="off" /></label
           ><label class="full-width"
-            >Perfil<select v-model="form.role">
+            >Perfil<select
+              v-model="form.role"
+              aria-label="Perfil"
+              aria-describedby="team-role-help"
+            >
               <option value="coletor">Coletor</option>
               <option value="gestor">Gestor municipal</option>
-            </select>
-            <p class="hint">
-              Gestores podem administrar outros gestores e coletores desta
-              cidade.
-            </p></label
-          ></template
+            </select></label
+          >
+          <p id="team-role-help" class="hint full-width">
+            Gestores podem administrar outros gestores e coletores desta cidade.
+          </p></template
         ><label v-else
-          >Situação<select v-model="form.ativo">
+          >Situação<select v-model="form.ativo" aria-label="Situação">
             <option :value="true">Ativo</option>
             <option :value="false">Inativo</option>
           </select></label
@@ -552,7 +606,9 @@ function choose(row: Row) {
     @update:open="!$event && (confirmation = null)"
     :title="
       confirmation?.action === 'excluir'
-        ? 'Remover acesso'
+        ? kind === 'pontos'
+          ? 'Excluir ponto de coleta'
+          : 'Excluir conta'
         : confirmation?.action === 'redefinirSenha'
           ? 'Redefinir acesso'
           : confirmation?.row.ativo
@@ -565,7 +621,9 @@ function choose(row: Row) {
         confirmation?.action === "redefinirSenha"
           ? "Uma nova senha temporária será gerada. As sessões atuais serão encerradas."
           : confirmation?.action === "excluir"
-            ? "O acesso será revogado. As entregas e o registro de auditoria serão preservados."
+            ? kind === "pontos"
+              ? "O ponto será excluído dos cadastros, do mapa e das novas coletas. As entregas já recebidas serão preservadas; pendências ainda não enviadas para este ponto serão rejeitadas e continuarão na fila."
+              : "O acesso será revogado imediatamente. As entregas e o registro de auditoria serão preservados."
             : "A nova situação será aplicada à operação após a reconexão."
       }}
     </p>
@@ -577,8 +635,19 @@ function choose(row: Row) {
         @click="confirmation = null"
       >
         Cancelar</button
-      ><button class="button primary" :disabled="saving" @click="confirm">
-        {{ saving ? "Aplicando…" : "Confirmar alteração" }}
+      ><button
+        class="button"
+        :class="confirmation?.action === 'excluir' ? 'danger' : 'primary'"
+        :disabled="saving"
+        @click="confirm"
+      >
+        {{
+          saving
+            ? "Aplicando…"
+            : confirmation?.action === "excluir"
+              ? "Excluir"
+              : "Confirmar alteração"
+        }}
       </button>
     </div></UiDialog
   >

@@ -128,12 +128,13 @@ model Ponto {
   lat Float
   lng Float
   ativo Boolean @default(true)
+  deletedAt DateTime?
   version Int @default(1)
   criadoEm DateTime @default(now())
   atualizadoEm DateTime @updatedAt
   entregas Entrega[]
   @@unique([municipioId, id])
-  @@index([municipioId, ativo])
+  @@index([municipioId, deletedAt, ativo])
 }
 model Material {
   id String @id

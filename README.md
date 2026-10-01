@@ -6,6 +6,7 @@ Aplicação Vue 3 para municípios de Mato Grosso do Sul. O mesmo repositório m
 
 - Painel com período no fuso `America/Campo_Grande`, mapa Leaflet, gráfico Chart.js e indicadores calculados no servidor.
 - Municípios, moradores/QR, pontos e equipe em páginas próprias, com busca, paginação e edição.
+- Cadastro de pontos com clique no mapa, iniciado na sede do município (catálogo público do IBGE para as 79 cidades de MS). Gestores e administradores podem excluir pontos e contas; recibos, histórico e auditoria são preservados.
 - Gestores administram outros gestores e coletores da própria cidade. Administrador global escolhe explicitamente a cidade. Coletores acessam catálogo e seu próprio histórico.
 - Better Auth com sessões verificadas no banco, cookies HttpOnly e autenticação TOTP obrigatória para o administrador. Primeiro administrador pela página `/ativar`, com código privado de uso único e prazo de validade. Sem cadastro público livre, senha padrão ou promoção a administrador por API.
 - Coleta por câmera, imagem ou código manual; revisão, fila offline por usuário/cidade, recibos idempotentes, exportação e sincronização com aplicativo aberto.

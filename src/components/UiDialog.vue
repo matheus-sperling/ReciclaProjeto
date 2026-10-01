@@ -9,7 +9,7 @@ import {
   DialogClose,
 } from "reka-ui";
 import { X } from "lucide-vue-next";
-defineProps<{ title: string; description?: string }>();
+defineProps<{ title: string; description?: string; wide?: boolean }>();
 const open = defineModel<boolean>("open", { required: true });
 </script>
 <template>
@@ -17,6 +17,7 @@ const open = defineModel<boolean>("open", { required: true });
     ><DialogPortal
       ><DialogOverlay class="dialog-overlay" /><DialogContent
         class="dialog-content"
+        :class="{ 'dialog-wide': wide }"
         @interact-outside="$event.preventDefault()"
       >
         <header class="dialog-heading">

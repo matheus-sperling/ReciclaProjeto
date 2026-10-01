@@ -15,7 +15,11 @@ const owner = new Client({ connectionString: url });
 await owner.connect();
 try {
   await owner.query("DROP SCHEMA public CASCADE; CREATE SCHEMA public");
-  for (const migration of ["202610010001_initial", "202610010002_security"])
+  for (const migration of [
+    "202610010001_initial",
+    "202610010002_security",
+    "202610010003_point_removal",
+  ])
     await owner.query(
       await readFile(
         new URL(

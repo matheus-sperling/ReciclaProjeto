@@ -20,6 +20,7 @@ import {
 import { request, state, number, dateTime } from "../lib/api";
 import PageState from "../components/PageState.vue";
 import type { Painel } from "../../shared/contracts";
+import { sedeMunicipal } from "../../shared/municipios";
 Chart.register(ArcElement, DoughnutController, Tooltip, Legend);
 const today = new Intl.DateTimeFormat("en-CA", {
   timeZone: "America/Campo_Grande",
@@ -52,18 +53,24 @@ async function render() {
   const points = data.value.pontos.filter(
     (p) => Number.isFinite(p.lat) && Number.isFinite(p.lng),
   );
-  if (mapElement.value && points.length) {
+  if (mapElement.value) {
+    const sede = sedeMunicipal(
+      data.value.municipio.nome,
+      data.value.municipio.uf,
+    );
     map = L.map(mapElement.value, { scrollWheelZoom: false }).setView(
-      [points[0]!.lat, points[0]!.lng],
-      12,
+      sede
+        ? [sede.lat, sede.lng]
+        : points[0]
+          ? [points[0].lat, points[0].lng]
+          : [-20.4, -54.7],
+      sede || points.length ? 13 : 6,
     );
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       attribution: "© OpenStreetMap",
       maxZoom: 19,
     }).addTo(map);
-    const bounds: L.LatLngExpression[] = [];
     points.forEach((p) => {
-      bounds.push([p.lat, p.lng]);
       const popup = document.createElement("div"),
         title = document.createElement("strong"),
         caption = document.createElement("p");
@@ -81,8 +88,6 @@ async function render() {
         .addTo(map!)
         .bindPopup(popup);
     });
-    if (points.length > 1)
-      map.fitBounds(L.latLngBounds(bounds), { padding: [25, 25], maxZoom: 14 });
   }
   if (chartElement.value && data.value.totalKg > 0)
     chart = new Chart(chartElement.value, {
@@ -244,14 +249,12 @@ onBeforeUnmount(() => {
           </div>
           <div class="map-wrap">
             <div
-              v-if="data.pontos.length"
               ref="mapElement"
               class="map-container"
               aria-label="Mapa de pontos de coleta"
             />
-            <div v-else class="map-empty">
-              <MapPin :size="35" /><strong
-                >O mapa começa com seu primeiro ponto</strong
+            <div v-if="!data.pontos.length" class="map-empty-caption">
+              <strong>Nenhum ponto cadastrado neste município.</strong
               ><RouterLink class="text-button" to="/pontos"
                 >Cadastrar ponto de coleta</RouterLink
               >

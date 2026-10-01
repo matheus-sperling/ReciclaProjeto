@@ -163,6 +163,156 @@ describe("Isolamento municipal com a credencial operacional", () => {
     expect(catalog.moradores.map((r: any) => r.id)).toEqual([ids.ra]);
   });
 });
+describe("Cadastro e exclusão de pontos", () => {
+  const input = {
+    nome: "Ponto do teste de exclusão",
+    local: "Referência",
+    lat: -18.5033,
+    lng: -54.7606,
+    ativo: true,
+  };
+  it("gestor e administrador adicionam e excluem pontos somente no município autorizado", async () => {
+    for (const user of [ga, root]) {
+      const query = { municipioId: ids.a };
+      const { ponto } = (await domain(
+        user,
+        "pontos",
+        "POST",
+        input,
+        query,
+      )) as any;
+      expect(ponto.municipioId).toBe(ids.a);
+      await expect(
+        domain(actor("gestor", "b"), "pontos", "DELETE", {
+          id: ponto.id,
+          version: 1,
+        }),
+      ).rejects.toMatchObject({ status: 409 });
+      await expect(
+        domain(
+          ga,
+          "pontos",
+          "DELETE",
+          { id: ponto.id, version: 1 },
+          { municipioId: ids.b },
+        ),
+      ).rejects.toMatchObject({ status: 403 });
+      await expect(
+        domain(ca, "pontos", "DELETE", { id: ponto.id, version: 1 }),
+      ).rejects.toMatchObject({ status: 403 });
+      await domain(
+        user,
+        "pontos",
+        "DELETE",
+        { id: ponto.id, version: 1 },
+        query,
+      );
+      expect(
+        (await owner.ponto.findUniqueOrThrow({ where: { id: ponto.id } }))
+          .deletedAt,
+      ).not.toBeNull();
+      for (const action of ["pontos", "catalogo", "painel"]) {
+        const result = (await domain(
+          ga,
+          action,
+          "GET",
+          {},
+          { inicio: "2020-01-01", fim: "2099-12-31" },
+        )) as any;
+        expect(result.pontos.some((p: any) => p.id === ponto.id)).toBe(false);
+      }
+      await expect(
+        domain(
+          user,
+          "pontos",
+          "PATCH",
+          { ...input, id: ponto.id, version: 2 },
+          query,
+        ),
+      ).rejects.toMatchObject({ status: 409 });
+    }
+    await expect(domain(ca, "pontos", "POST", input)).rejects.toMatchObject({
+      status: 403,
+    });
+    await expect(domain(root, "pontos", "POST", input)).rejects.toMatchObject({
+      status: 400,
+    });
+  });
+  it("preserva histórico, totais e reenvios idênticos depois de excluir um ponto", async () => {
+    const { ponto } = (await domain(ga, "pontos", "POST", input)) as any;
+    const body = {
+      id: crypto.randomUUID(),
+      municipioId: ids.a,
+      coletorId: ids.ca,
+      moradorId: ids.ra,
+      pontoId: ponto.id,
+      materialId: "papel",
+      kg: 1.25,
+      criadoEm: new Date().toISOString(),
+    };
+    const receipt = (await domain(ca, "entregas", "POST", body)) as any;
+    const range = { inicio: "2020-01-01", fim: "2099-12-31" };
+    const before = (await domain(ga, "painel", "GET", {}, range)) as any;
+    const deletion = { id: ponto.id, version: 1 };
+    const results = await Promise.allSettled([
+      domain(ga, "pontos", "DELETE", deletion),
+      domain(root, "pontos", "DELETE", deletion, { municipioId: ids.a }),
+    ]);
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    expect(
+      await owner.auditoria.count({
+        where: { alvoId: ponto.id, acao: "pontos.excluido" },
+      }),
+    ).toBe(1);
+    const after = (await domain(ga, "painel", "GET", {}, range)) as any;
+    expect(after.totalKg).toBe(before.totalKg);
+    expect(after.entregas).toBe(before.entregas);
+    expect(after.ativos).toBe(before.ativos - 1);
+    expect(
+      ((await domain(ca, "entregas", "POST", body)) as any).entrega,
+    ).toEqual(receipt.entrega);
+    await expect(
+      domain(ca, "entregas", "POST", { ...body, id: crypto.randomUUID() }),
+    ).rejects.toMatchObject({ status: 400 });
+    await expect(
+      domain(ca, "entregas", "POST", { ...body, kg: 2 }),
+    ).rejects.toMatchObject({ status: 409 });
+    expect(
+      (
+        await owner.entrega.findUniqueOrThrow({
+          where: { municipioId_id: { municipioId: ids.a, id: body.id } },
+        })
+      ).pontoNome,
+    ).toBe(input.nome);
+  });
+  it("ordena exclusão simultânea à criação de recibo sem perder uma entrega confirmada", async () => {
+    const { ponto } = (await domain(ga, "pontos", "POST", input)) as any;
+    const body = {
+      id: crypto.randomUUID(),
+      municipioId: ids.a,
+      coletorId: ids.ca,
+      moradorId: ids.ra,
+      pontoId: ponto.id,
+      materialId: "papel",
+      kg: 1,
+      criadoEm: new Date().toISOString(),
+    };
+    const [delivery, deletion] = await Promise.allSettled([
+      domain(ca, "entregas", "POST", body),
+      domain(ga, "pontos", "DELETE", { id: ponto.id, version: 1 }),
+    ]);
+    expect(deletion.status).toBe("fulfilled");
+    if (delivery.status === "fulfilled") {
+      expect(await owner.entrega.count({ where: { id: body.id } })).toBe(1);
+      expect(
+        ((await domain(ca, "entregas", "POST", body)) as any).duplicate,
+      ).toBe(true);
+    } else {
+      expect(delivery.reason.status).toBe(400);
+      expect(await owner.entrega.count({ where: { id: body.id } })).toBe(0);
+    }
+  });
+});
 describe("Entregas e recibos", () => {
   const input = () => ({
     id: crypto.randomUUID(),

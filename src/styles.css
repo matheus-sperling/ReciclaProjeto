@@ -1047,6 +1047,103 @@ tbody tr:hover {
   gap: 16px;
   margin-bottom: 25px;
 }
+.dialog-content.dialog-wide {
+  width: min(780px, calc(100% - 32px));
+}
+.point-picker {
+  min-width: 0;
+}
+.point-picker-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.point-picker-heading strong {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+}
+.point-picker-heading p {
+  font-size: 12px;
+  color: var(--muted);
+  margin: 5px 0 0;
+}
+.point-picker-map-wrap {
+  position: relative;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--surface-alt);
+}
+.point-picker-map {
+  height: 310px;
+  width: 100%;
+  cursor: crosshair;
+  z-index: 1;
+}
+.map-center-target {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  color: #17694d;
+  background: #ffffffdf;
+  border: 1px solid #17694d;
+  border-radius: 50%;
+  width: 22px;
+  height: 22px;
+  text-align: center;
+  line-height: 18px;
+  font-size: 22px;
+  z-index: 2;
+  pointer-events: none;
+}
+.point-picker-selection {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 0 3px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.point-picker-selection.selected {
+  color: var(--green);
+}
+:root.dark .leaflet-tile {
+  filter: brightness(0.75) contrast(1.1);
+}
+.point-picker-selection span {
+  overflow-wrap: anywhere;
+}
+.map-empty-caption {
+  position: absolute;
+  bottom: 12px;
+  left: 12px;
+  right: 12px;
+  z-index: 2;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12px;
+}
+@media (max-width: 600px) {
+  .point-picker-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .point-picker-map {
+    height: 270px;
+  }
+}
 .dialog-title {
   font-size: 21px;
   letter-spacing: -0.5px;

@@ -63,6 +63,16 @@ Para regressão de código, use a função de rollback da Vercel ou reverta o co
 
 Use primeiro um código de recuperação no login. Se senha e autenticador forem perdidos, uma pessoa autorizada com a credencial proprietária pode executar `npm run admin:recover`, definindo `DIRECT_URL`, uma nova `ADMIN_PASSWORD` e `ADMIN_RECOVERY_CONFIRM=RECUPERAR_ADMINISTRADOR` no terminal protegido. Isso revoga sessões, retira o autenticador antigo, registra auditoria e exige troca de senha e novo TOTP antes da operação. Limpe as variáveis após executar. O procedimento não existe como endpoint público.
 
+## Pontos de coleta e mapa municipal
+
+Gestores e administradores podem cadastrar, editar, desativar e **excluir pontos** em **Pontos de coleta**. O administrador deve abrir o município antes de administrar seus cadastros. No cadastro, informe nome e endereço/referência e clique no mapa para selecionar o local. Outro clique move a marcação; a edição começa na localização já salva. A operação por teclado usa setas e Enter, ou o botão **Marcar no centro do mapa**.
+
+O mapa de cadastro e o painel abrem na sede do município. `shared/municipios.ts` contém apenas as 79 sedes de MS, extraídas dos campos `CD_MUN`, `NM_MUN`, `LAT_LOCALIDADE` e `LONG_LOCALIDADE`, com filtros `SIGLA_UF=MS`, `CT_LOCALIDADE=Cidade` e `SCT_LOCALIDADE=Sede Municipal`, do [IBGE — Localidades do Brasil 2022](https://geoftp.ibge.gov.br/organizacao_do_territorio/estrutura_territorial/localidades/Localidades_do_Brasil/2022/Localidades_Brasil_gpkg.zip) (publicado em novembro de 2025, consultado em 01/10/2026). Coordenadas SIRGAS 2000, arredondadas a seis casas. Não há geocodificação externa de moradores ou de endereços. Para atualizar, obtenha a versão oficial, confira unicidade dos códigos e nomes, e substitua somente o recorte de sedes; não versione o arquivo nacional. Novos municípios são selecionados desse catálogo, validado também no servidor. Registros anteriores com nomes inválidos devem ser corrigidos pelo administrador; o identificador municipal e os vínculos são preservados.
+
+A exclusão é permanente na interface: retira o ponto das listas, do mapa e do catálogo de novas coletas. O banco conserva um registro com `deletedAt` e `ativo=false` para manter os vínculos, recibos e indicadores históricos. A API não permite reativar um ponto excluído; se necessário, cadastre um novo ponto. Exclusão, edição e confirmação de entregas são serializadas por ponto, e a versão impede alterações concorrentes silenciosas. Reenvios de entregas já confirmadas continuam retornando o mesmo recibo. Pendências ainda não recebidas para um ponto excluído são rejeitadas, permanecem na fila e podem ser exportadas para conferência.
+
+O administrador pode **excluir contas de gestores e coletores** em **Municípios → Abrir → Equipe → Excluir conta**. A conta desaparece da listagem e suas sessões são revogadas imediatamente; entregas e auditoria permanecem. As proteções da própria conta e do último gestor ativo do município continuam obrigatórias.
+
 ## Coletor e suporte
 
 Abra **Coletor** conectado e aguarde “Pronto para coleta offline”. Essa indicação depende de catálogo disponível e confirmação de todos os arquivos públicos no service worker. O mapa remoto não fica disponível offline. APIs e respostas com dados pessoais nunca entram no cache do service worker.

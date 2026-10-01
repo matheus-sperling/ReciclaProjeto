@@ -15,6 +15,7 @@ import {
   uuid,
 } from "../shared/validation.js";
 import type { User } from "../shared/contracts.js";
+import { normalizarMunicipio } from "../shared/municipios.js";
 
 type Query = Record<string, string>;
 const manager = (u: User) => {
@@ -110,6 +111,14 @@ async function audit(
 async function lockMunicipality(tx: Prisma.TransactionClient, id: string) {
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${id},0))`;
 }
+async function lockPoint(
+  tx: Prisma.TransactionClient,
+  municipioId: string,
+  id: string,
+) {
+  // Serialize removal/editing with receipt creation. The lock is scoped to a point.
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${"ponto:" + municipioId + ":" + id},0))`;
+}
 export function createDomain(db: PrismaClient, accounts: PrismaClient) {
   return async function execute(
     actor: User,
@@ -142,10 +151,7 @@ export function createDomain(db: PrismaClient, accounts: PrismaClient) {
           const municipio = await tx.municipio.create({
             data: {
               ...input,
-              nomeNormalizado: input.nome
-                .normalize("NFD")
-                .replace(/[\u0300-\u036f]/g, "")
-                .toLowerCase(),
+              nomeNormalizado: normalizarMunicipio(input.nome),
             },
           });
           await audit(
@@ -166,10 +172,7 @@ export function createDomain(db: PrismaClient, accounts: PrismaClient) {
             where: { id, version },
             data: {
               ...input,
-              nomeNormalizado: input.nome
-                .normalize("NFD")
-                .replace(/[\u0300-\u036f]/g, "")
-                .toLowerCase(),
+              nomeNormalizado: normalizarMunicipio(input.nome),
               version: { increment: 1 },
             },
           });
@@ -362,7 +365,7 @@ export function createDomain(db: PrismaClient, accounts: PrismaClient) {
             orderBy: { nome: "asc" },
           }),
           tx.ponto.findMany({
-            where: { municipioId },
+            where: { municipioId, deletedAt: null },
             orderBy: { nome: "asc" },
           }),
           tx.material.findMany({ orderBy: { nome: "asc" } }),
@@ -382,6 +385,7 @@ export function createDomain(db: PrismaClient, accounts: PrismaClient) {
           const p = pagination(query),
             where = {
               municipioId,
+              ...(!isResident ? { deletedAt: null } : {}),
               nome: { contains: p.search, mode: "insensitive" as const },
             };
           const rows = isResident
@@ -433,8 +437,9 @@ export function createDomain(db: PrismaClient, accounts: PrismaClient) {
           const { id, version, ...input } = edited(pontoSchema.shape).parse(
             extract(body),
           );
+          await lockPoint(tx, municipioId, id);
           const result = await tx.ponto.updateMany({
-            where: { id, municipioId, version },
+            where: { id, municipioId, version, deletedAt: null },
             data: { ...input, version: { increment: 1 } },
           });
           if (!result.count)
@@ -444,6 +449,25 @@ export function createDomain(db: PrismaClient, accounts: PrismaClient) {
             );
           await audit(tx, actor, municipioId, "pontos.alterado", id);
           return { ponto: await tx.ponto.findUnique({ where: { id } }) };
+        }
+        if (!isResident && method === "DELETE") {
+          const { id, version } = edited({}).parse(extract(body));
+          await lockPoint(tx, municipioId, id);
+          const result = await tx.ponto.updateMany({
+            where: { id, municipioId, version, deletedAt: null },
+            data: {
+              ativo: false,
+              deletedAt: new Date(),
+              version: { increment: 1 },
+            },
+          });
+          if (!result.count)
+            throw new ApiError(
+              409,
+              "Ponto não encontrado ou alterado. Atualize a lista.",
+            );
+          await audit(tx, actor, municipioId, "pontos.excluido", id);
+          return { ok: true };
         }
       }
       if (action === "entregas") {
@@ -508,12 +532,18 @@ export function createDomain(db: PrismaClient, accounts: PrismaClient) {
               );
             return { entrega: dtoEntrega(previous), duplicate: true };
           }
+          await lockPoint(tx, municipioId, input.pontoId);
           const [resident, point, material] = await Promise.all([
             tx.morador.findFirst({
               where: { id: input.moradorId, municipioId, ativo: true },
             }),
             tx.ponto.findFirst({
-              where: { id: input.pontoId, municipioId, ativo: true },
+              where: {
+                id: input.pontoId,
+                municipioId,
+                ativo: true,
+                deletedAt: null,
+              },
             }),
             tx.material.findUnique({ where: { id: input.materialId } }),
           ]);
@@ -549,7 +579,7 @@ export function createDomain(db: PrismaClient, accounts: PrismaClient) {
         const [pontos, materiais, byPoint, byMaterial, totals] =
           await Promise.all([
             tx.ponto.findMany({
-              where: { municipioId },
+              where: { municipioId, deletedAt: null },
               orderBy: { nome: "asc" },
             }),
             tx.material.findMany(),

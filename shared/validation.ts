@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { sedeMunicipal } from "./municipios.js";
 export const uuid = z.uuid().transform((v) => v.toLowerCase());
 export const nome = z
   .string()
@@ -44,7 +45,12 @@ export const pontoSchema = z
   .strict();
 export const municipioSchema = z
   .object({
-    nome,
+    nome: nome
+      .refine(
+        (v) => !!sedeMunicipal(v),
+        "Selecione um município de Mato Grosso do Sul.",
+      )
+      .transform((v) => sedeMunicipal(v)!.nome),
     uf: z.literal("MS").default("MS"),
     ativo: z.boolean().default(true),
   })
