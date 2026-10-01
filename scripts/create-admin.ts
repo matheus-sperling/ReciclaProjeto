@@ -16,7 +16,7 @@ try {
         "O administrador já existe. Use o procedimento de recuperação.",
       );
     const user = await tx.user.create({
-      data: { name, email, role: "administrador", mustChangePassword: false },
+      data: { name, email, role: "administrador", mustChangePassword: true },
     });
     await tx.account.create({
       data: {
@@ -29,7 +29,7 @@ try {
     await tx.$executeRaw`INSERT INTO "Auditoria" (id,"actorId",acao,"alvoId") VALUES (${crypto.randomUUID()}::uuid,${user.id}::uuid,'administrador.criado',${user.id})`;
   });
   console.log(
-    "Administrador criado. Configure o autenticador no primeiro acesso.",
+    "Administrador criado. Troque a senha temporária e configure o autenticador no primeiro acesso.",
   );
 } catch (error) {
   console.error(

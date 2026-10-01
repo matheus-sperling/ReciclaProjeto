@@ -2,6 +2,8 @@ import { test, expect, type Page } from "@playwright/test";
 import { Client } from "pg";
 import { readFile, writeFile } from "node:fs/promises";
 import { ids, testPassword } from "../fixture";
+import { createOTP } from "@better-auth/utils/otp";
+import { base32 } from "@better-auth/utils/base32";
 let storage: Awaited<
   ReturnType<import("@playwright/test").BrowserContext["storageState"]>
 >;
@@ -108,13 +110,11 @@ test("Gestor → cadastro e QR → coleta offline → sincronização → recibo
   await expect(
     collect.getByRole("heading", { name: "Vamos coletar." }),
   ).toBeVisible();
-  await collect
-    .locator("input[type=file]")
-    .setInputFiles({
-      name: "qr.png",
-      mimeType: "image/png",
-      buffer: Buffer.from(qrImage.split(",")[1], "base64"),
-    });
+  await collect.locator("input[type=file]").setInputFiles({
+    name: "qr.png",
+    mimeType: "image/png",
+    buffer: Buffer.from(qrImage.split(",")[1], "base64"),
+  });
   await expect(collect.getByText(residentName, { exact: true })).toBeVisible();
   await collect.getByRole("button", { name: "Trocar", exact: true }).click();
   await collect.getByRole("button", { name: "Código manual" }).click();
@@ -228,5 +228,129 @@ test("Estados vazio, erro e falta de permissão", async ({ browser }) => {
     },
   );
   expect(forged.status()).toBe(403);
+  await context.close();
+});
+
+test("Administrador: primeiro acesso, autenticador e telas da plataforma nos dois temas", async ({
+  browser,
+}) => {
+  test.setTimeout(120000);
+  const db = new Client({ connectionString: process.env.TEST_DATABASE_URL });
+  await db.connect();
+  await db.query('DELETE FROM "twoFactor" WHERE "userId"=$1', [ids.admin]);
+  await db.query('DELETE FROM "session" WHERE "userId"=$1', [ids.admin]);
+  await db.query(
+    'UPDATE "user" SET "mustChangePassword"=true, "twoFactorEnabled"=false WHERE id=$1',
+    [ids.admin],
+  );
+  await db.end();
+  const context = await browser.newContext({
+    viewport: { width: 1440, height: 1000 },
+  });
+  const page = await context.newPage();
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.goto("/entrar");
+  await page
+    .getByLabel("E-mail", { exact: true })
+    .fill("administrador@teste.invalid");
+  await page.locator("#password").fill(testPassword);
+  await page.getByRole("button", { name: "Entrar", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "Prepare seu acesso", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText(
+      "Antes de continuar, substitua sua senha temporária por uma senha pessoal.",
+    ),
+  ).toBeVisible();
+  const newPassword = testPassword + "-Nova";
+  await page.getByLabel("Senha atual", { exact: true }).fill(testPassword);
+  await page.getByLabel("Nova senha", { exact: true }).fill(newPassword);
+  await page
+    .getByLabel("Repita a nova senha", { exact: true })
+    .fill(newPassword);
+  await page
+    .getByRole("button", { name: "Salvar nova senha", exact: true })
+    .click();
+  await expect(
+    page.getByText("Senha alterada. As outras sessões foram encerradas."),
+  ).toBeVisible();
+  await page
+    .getByLabel("Confirme sua senha", { exact: true })
+    .fill(newPassword);
+  const setupResponse = page.waitForResponse((response) =>
+    response.url().endsWith("/api/auth/two-factor/enable"),
+  );
+  await page
+    .getByRole("button", { name: "Configurar autenticador", exact: true })
+    .click();
+  const setup = await (await setupResponse).json();
+  expect(setup.backupCodes).toHaveLength(10);
+  await expect(
+    page.getByLabel("QR para configurar o autenticador"),
+  ).toBeVisible();
+  const secret = new URL(setup.totpURI).searchParams.get("secret")!;
+  const code = await createOTP(
+    new TextDecoder().decode(base32.decode(secret)),
+    { digits: 6, period: 30 },
+  ).totp();
+  await page.getByLabel("Código do aplicativo", { exact: true }).fill(code);
+  await page
+    .getByRole("button", { name: "Confirmar e ativar", exact: true })
+    .click();
+  await expect(
+    page.getByText("Verificação em duas etapas ativada."),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "Continuar para o sistema", exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "Municípios", exact: true }),
+  ).toBeVisible();
+  for (const width of [1440, 390])
+    for (const theme of ["light", "dark"]) {
+      await page.setViewportSize({ width, height: width === 390 ? 844 : 1000 });
+      await page.evaluate((value) => {
+        document.documentElement.classList.toggle("dark", value === "dark");
+      }, theme);
+      for (const [path, title] of [
+        ["/municipios", "Municípios"],
+        ["/painel", "Painel municipal"],
+        ["/moradores", "Moradores e QR"],
+        ["/pontos", "Pontos de coleta"],
+        ["/equipe", "Equipe municipal"],
+        ["/entregas", "Entregas recebidas"],
+        ["/seguranca", "Segurança da conta"],
+      ]) {
+        if (path === "/painel") {
+          await page
+            .getByRole("row")
+            .filter({ hasText: "Coxim" })
+            .getByRole("button", { name: "Abrir", exact: true })
+            .click();
+        } else if ((await page.url()).endsWith(path) === false) {
+          if (width === 390)
+            await page
+              .getByRole("button", { name: "Abrir menu", exact: true })
+              .click();
+          await page.locator(`.nav-link[href="${path}"]`).click();
+        }
+        await expect(
+          page.getByRole("heading", { name: title, exact: true }),
+        ).toBeVisible();
+        await expect(page.getByText("Carregando informações")).toHaveCount(0);
+        expect(
+          await page.evaluate(
+            () => document.documentElement.scrollWidth <= innerWidth + 1,
+          ),
+        ).toBe(true);
+        await page.screenshot({
+          path: `test-results/admin-${width}-${theme}-${path.slice(1)}.png`,
+          fullPage: true,
+        });
+      }
+    }
+  expect(errors).toEqual([]);
   await context.close();
 });
