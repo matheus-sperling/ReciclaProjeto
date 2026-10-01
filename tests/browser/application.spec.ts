@@ -1,5 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import { Client } from "pg";
+import { readFile, writeFile } from "node:fs/promises";
 import { ids, testPassword } from "../fixture";
 let storage: Awaited<
   ReturnType<import("@playwright/test").BrowserContext["storageState"]>
@@ -91,6 +92,10 @@ test("Gestor → cadastro e QR → coleta offline → sincronização → recibo
   await expect(page.getByRole("dialog")).toBeVisible();
   const qr = await page.locator(".qr-code").innerText();
   expect(qr).toMatch(/^recicla:morador:/);
+  const qrImage = await page
+    .getByRole("dialog")
+    .locator("canvas")
+    .evaluate((canvas: HTMLCanvasElement) => canvas.toDataURL("image/png"));
   await page.getByRole("button", { name: "Fechar", exact: true }).click();
   const collector = await browser.newContext(),
     collect = await collector.newPage();
@@ -103,6 +108,15 @@ test("Gestor → cadastro e QR → coleta offline → sincronização → recibo
   await expect(
     collect.getByRole("heading", { name: "Vamos coletar." }),
   ).toBeVisible();
+  await collect
+    .locator("input[type=file]")
+    .setInputFiles({
+      name: "qr.png",
+      mimeType: "image/png",
+      buffer: Buffer.from(qrImage.split(",")[1], "base64"),
+    });
+  await expect(collect.getByText(residentName, { exact: true })).toBeVisible();
+  await collect.getByRole("button", { name: "Trocar", exact: true }).click();
   await collect.getByRole("button", { name: "Código manual" }).click();
   await collect.getByLabel("QR ou identificador do morador").fill(qr);
   await collect.getByRole("button", { name: "Localizar morador" }).click();
@@ -142,6 +156,51 @@ test("Gestor → cadastro e QR → coleta offline → sincronização → recibo
   expect(cacheKeys.some((u) => u.includes("/api/"))).toBe(false);
   await manager.close();
   await collector.close();
+});
+test("Atualização do aplicativo espera o formulário seguro", async ({
+  browser,
+}) => {
+  const context = await browser.newContext(),
+    page = await context.newPage();
+  const original = await readFile("dist/coletor-sw.js", "utf8");
+  try {
+    await login(page, "coletor-a@teste.invalid");
+    await expect(
+      page.getByText("Pronto para coleta offline", { exact: true }),
+    ).toBeVisible({ timeout: 30000 });
+    await page.getByRole("button", { name: "Código manual" }).click();
+    await page
+      .getByLabel("QR ou identificador do morador")
+      .fill("recicla:morador:" + ids.ra);
+    await page.getByRole("button", { name: "Localizar morador" }).click();
+    await expect(page.getByText("Ana da Silva", { exact: true })).toBeVisible();
+    await writeFile(
+      "dist/coletor-sw.js",
+      original + "\n// verificação de atualização " + Date.now(),
+    );
+    await page.evaluate(async () => {
+      const r = await navigator.serviceWorker.getRegistration("/coletor");
+      await r!.update();
+    });
+    const button = page.getByRole("button", {
+      name: "Atualizar aplicativo",
+      exact: true,
+    });
+    await expect(button).toBeVisible();
+    await expect(button).toBeDisabled();
+    await page.getByRole("button", { name: "Trocar", exact: true }).click();
+    await expect(button).toBeEnabled();
+    await button.click();
+    await expect(
+      page.getByRole("heading", { name: "Vamos coletar." }),
+    ).toBeVisible();
+    await expect(page.getByText("Ana da Silva", { exact: true })).toHaveCount(
+      0,
+    );
+  } finally {
+    await writeFile("dist/coletor-sw.js", original);
+    await context.close();
+  }
 });
 test("Estados vazio, erro e falta de permissão", async ({ browser }) => {
   const context = await browser.newContext({ storageState: storage }),

@@ -46,6 +46,42 @@ afterAll(async () => {
   await disconnect();
 });
 describe("Autenticação e revogação reais", () => {
+  it("limita tentativas por conta mesmo alternando o IP", async () => {
+    const email = "tentativas-" + Date.now() + "@teste.invalid";
+    const statuses: number[] = [];
+    for (let i = 0; i < 9; i++) {
+      const request = new Request(
+        process.env.APP_ORIGIN + "/api/auth/sign-in/email",
+        {
+          method: "POST",
+          headers: {
+            origin: process.env.APP_ORIGIN!,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({ email, password: testPassword }),
+        },
+      );
+      statuses.push((await authHandler(request, "203.0.113." + i)).status);
+    }
+    expect(statuses[0]).toBe(401);
+    expect(statuses[8]).toBe(429);
+  });
+  it("peso inválido retorna validação clara em vez de falha do serviço", async () => {
+    const b = new Browser();
+    await b.login();
+    const r = await b.call("/api/recicla?action=entregas", {
+      id: crypto.randomUUID(),
+      municipioId: ids.a,
+      coletorId: ids.ga,
+      moradorId: ids.ra,
+      pontoId: ids.pa,
+      materialId: "papel",
+      kg: 0,
+      criadoEm: new Date().toISOString(),
+    });
+    expect(r.status).toBe(400);
+    expect(r.data.error).toMatch(/peso/i);
+  });
   it("bloqueia cadastro público, endpoints administrativos e origem externa", async () => {
     const b = new Browser();
     expect(
