@@ -8,33 +8,39 @@
   <link rel="manifest" href="/coletor/manifest.webmanifest">
   <link rel="icon" href="/coletor/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="/coletor/icon-192.png">
-  <link rel="stylesheet" href="/coletor/styles.css">
+  <link rel="stylesheet" href="/coletor/styles.css"><link rel="stylesheet" href="/shared/styles.css">
   <script>
     try { document.documentElement.dataset.theme = localStorage.getItem('recicla-theme') === 'light' ? 'light' : 'dark'; }
     catch { document.documentElement.dataset.theme = 'dark'; }
   </script>
   <script defer crossorigin="anonymous" src="https://cdn.jsdelivr.net/npm/vue@3.5.13/dist/vue.global.prod.js"></script>
-  <script defer crossorigin="anonymous" src="https://cdn.jsdelivr.net/npm/dexie@4.0.11/dist/dexie.min.js"></script>
   <script defer crossorigin="anonymous" src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
   <script defer src="/coletor/config.js"></script>
   <script defer src="/coletor/core.js"></script>
+  <script defer src="/shared/client.js"></script>
+  <script defer src="/shared/auth.js"></script>
   <script defer src="/coletor/app.js"></script>
 </head>
 <body>
   <noscript><p class="notice">Ative o JavaScript para registrar as entregas.</p></noscript>
   <p id="startup" class="notice" role="status">Carregando o coletor Recicla+…</p>
   <div id="app" v-cloak>
-    <div class="phone">
+    <p v-if="carregando" class="notice">Verificando acesso…</p>
+    <recicla-auth v-if="!carregando && !user" @authenticated="entrar"></recicla-auth>
+    <div class="phone" v-show="user">
       <header class="topbar">
         <a class="brand" href="/" aria-label="Abrir painel do gestor">Recicla<span>+</span></a>
         <div class="top-actions"><span class="location">{{ config.municipio }} / {{ config.uf }}</span>
           <button class="theme" type="button" @click="alternarTema" :aria-pressed="escuro" aria-label="Modo escuro">{{ escuro ? 'Tema claro' : 'Tema escuro' }}</button></div>
       </header>
       <main>
+        <div class="session-line"><span>{{ user?.nome }} · {{ user?.role }}</span><button class="text-button" @click="sair" type="button">Sair</button></div>
         <div class="intro"><p class="eyebrow">COLETA SELETIVA</p><h1>Registrar. Reciclar.<br>Transformar.</h1><p class="muted">Cada entrega conta para uma cidade melhor.</p></div>
         <div class="connection" role="status"><span class="dot" :class="{ offline: !online }"></span><span>{{ online ? 'Com conexão' : 'Sem conexão' }}</span><span class="cache-status">{{ offlinePronto ? 'Pronto para uso offline' : 'Offline ainda não preparado' }}</span></div>
         <p v-if="avisoOffline" class="notice compact" role="status">{{ avisoOffline }}</p>
-        <div class="local-note"><strong>Registros neste dispositivo</strong><span>As entregas ainda não são enviadas ao painel do gestor.</span></div>
+        <div class="local-note"><strong>{{ pendentes }} entrega(s) pendente(s)</strong><span>{{ sincronizando ? 'Enviando ao armazenamento central…' : 'Envio automático quando houver conexão.' }}</span></div>
+        <div class="actions"><button class="secondary" @click="sincronizar" :disabled="!online || sincronizando || precisaEntrar">Sincronizar</button><button class="text-button" @click="atualizarCatalogo" :disabled="!online">Atualizar cadastros</button></div>
+        <p v-if="precisaEntrar" class="notice error">Sua sessão expirou. A fila está preservada. <button @click="reentrar" type="button">Entrar novamente</button></p>
         <nav class="tabs" aria-label="Telas do coletor">
           <button type="button" :aria-current="aba === 'nova' ? 'page' : undefined" :class="{ active: aba === 'nova' }" @click="trocarAba('nova')">Nova entrega</button>
           <button type="button" :aria-current="aba === 'historico' ? 'page' : undefined" :class="{ active: aba === 'historico' }" @click="trocarAba('historico')">Histórico <span class="badge">{{ registros.length }}</span></button>
@@ -51,44 +57,45 @@
               <svg viewBox="0 0 48 48" width="44" height="44" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="7" y="13" width="34" height="25" rx="5"/><path d="m16 13 3-5h10l3 5"/><circle cx="24" cy="25" r="7"/></svg>
               <span>Aponte a câmera para o QR do morador</span>
             </div>
-            <p v-if="form.moradorId" class="resident" role="status"><span>Código selecionado</span><strong>{{ form.moradorId }}</strong><small>Identificador informado; cadastro ainda não validado.</small></p>
+            <p v-if="form.moradorId" class="resident" role="status"><span>Código selecionado</span><strong>{{ form.moradorId }}</strong><small>{{ morador ? morador.nome : 'Morador não encontrado no cadastro disponível' }}</small></p>
             <p v-if="erroCamera" class="notice compact error" role="alert">{{ erroCamera }}</p>
             <button class="secondary full" type="button" @click="cameraAtiva ? pararCamera() : iniciarCamera()" :disabled="cameraOcupada">{{ cameraOcupada ? 'Preparando câmera…' : cameraAtiva ? 'Parar câmera' : form.moradorId ? 'Ler outro QR' : 'Ler QR do morador' }}</button>
             <button class="text-button full" type="button" @click="alternarManual" :aria-expanded="manual" :disabled="cameraOcupada">{{ manual ? 'Ocultar entrada manual' : 'Informar código manualmente' }}</button>
-            <div v-if="manual" class="manual"><label for="resident-id">Código do morador</label><input id="resident-id" v-model="form.moradorId" maxlength="64" placeholder="Ex.: morador-001" autocomplete="off" autocapitalize="none" spellcheck="false"><p class="hint">Use apenas o identificador, sem nome ou CPF.</p></div>
+            <label class="text-button full">Ler QR de uma imagem<input type="file" accept="image/*" @change="lerArquivo" aria-label="Imagem do QR do morador"></label>
+            <div v-if="manual" class="manual"><label for="resident-id">Código do morador</label><input id="resident-id" v-model="form.moradorId" maxlength="64" placeholder="Identificador emitido pelo gestor" autocomplete="off" autocapitalize="none" spellcheck="false"><p class="hint">Use apenas o identificador, sem nome ou CPF.</p></div>
           </div>
           <form @submit.prevent="conferir">
             <div class="card delivery">
               <div class="card-heading"><span class="step">02</span><div><h3>Detalhes da entrega</h3><p>Selecione o ponto, o material e o peso.</p></div></div>
               <label for="point">Ponto de coleta</label>
               <select id="point" v-model="form.pontoId" required><option value="" disabled>Selecione um ponto…</option><option v-for="ponto in config.pontos" :key="ponto.id" :value="String(ponto.id)" :disabled="!ponto.ativo">{{ ponto.nome }}{{ ponto.ativo ? '' : ' — manutenção' }}</option></select>
-              <p class="hint">Pontos demonstrativos do painel de Coxim.</p>
+              <p class="hint">{{ config.demonstrativo ? 'Confirme com o gestor os pontos demonstrativos de Coxim.' : 'Cadastros do município atualizados pelo gestor.' }}</p>
               <label for="material">Material</label>
               <select id="material" v-model="form.materialId" required><option value="" disabled>Selecione o material…</option><option v-for="m in config.materiais" :key="m.id" :value="m.id">{{ m.nome }}</option></select>
               <label for="weight">Peso da entrega</label><div class="weight"><input id="weight" v-model="form.kg" type="text" inputmode="decimal" placeholder="0,000" required autocomplete="off" aria-describedby="weight-hint"><span>kg</span></div>
               <p id="weight-hint" class="hint">Informe o peso medido. Exemplo: 2,500 kg.</p>
             </div>
-            <button class="primary full" type="submit" :disabled="!bancoPronto || cameraOcupada || cameraAtiva">{{ bancoPronto ? 'Conferir entrega' : 'Aguardando armazenamento…' }}</button>
+            <button class="primary full" type="submit" :disabled="!bancoPronto || cameraOcupada || cameraAtiva">{{ bancoPronto ? 'Conferir entrega' : 'Atualize os cadastros…' }}</button>
             <p class="save-caption">Você confirma os dados antes de salvar.</p>
           </form>
         </section>
 
         <section v-if="aba === 'nova' && revisao" class="card review" aria-labelledby="review-title">
-          <p class="eyebrow">CONFIRMAÇÃO</p><h2 id="review-title" tabindex="-1">Confira a entrega</h2><dl><dt>Morador</dt><dd>{{ revisao.moradorId }}</dd><dt>Ponto</dt><dd>{{ revisao.pontoNome }}</dd><dt>Material</dt><dd>{{ revisao.materialNome }}</dd><dt>Peso</dt><dd class="review-weight">{{ numero(revisao.kg) }} kg</dd></dl>
-          <p class="muted">O registro será salvo neste dispositivo, com data e hora da confirmação.</p>
+          <p class="eyebrow">CONFIRMAÇÃO</p><h2 id="review-title" tabindex="-1">Confira a entrega</h2><dl><dt>Morador</dt><dd>{{ revisao.moradorNome }}</dd><dt>Ponto</dt><dd>{{ revisao.pontoNome }}</dd><dt>Material</dt><dd>{{ revisao.materialNome }}</dd><dt>Peso</dt><dd class="review-weight">{{ numero(revisao.kg) }} kg</dd></dl>
+          <p class="muted">O registro será enviado ao armazenamento central. Sem conexão, ficará na fila deste navegador.</p>
           <button class="primary full" type="button" @click="salvar" :disabled="salvando">{{ salvando ? 'Salvando…' : 'Confirmar e salvar' }}</button><button class="text-button full" type="button" @click="revisao = null" :disabled="salvando">Voltar e corrigir</button>
         </section>
 
         <section v-if="aba === 'historico'" aria-labelledby="history-title">
-          <div class="history-heading"><h2 id="history-title">Entregas locais</h2><button class="secondary" type="button" @click="exportar" :disabled="!bancoPronto || !registros.length || exportando">{{ exportando ? 'Exportando…' : 'Exportar JSON' }}</button></div>
+          <div class="history-heading"><h2 id="history-title">Minhas entregas</h2><button class="secondary" type="button" @click="exportar" :disabled="!bancoPronto || !registros.length || exportando">{{ exportando ? 'Exportando…' : 'Exportar JSON' }}</button></div>
           <div class="totals"><div><span>Entregas</span><strong>{{ registros.length }}</strong></div><div><span>Total registrado</span><strong>{{ numero(totalKg) }} <small>kg</small></strong></div></div>
           <p v-if="!registros.length" class="card empty">Nenhuma entrega neste dispositivo.<br>Registre a primeira na aba Nova entrega.</p>
-          <ul class="history-list"><li v-for="r in registrosVisiveis" :key="r.id" class="card record"><div class="record-top"><strong>{{ r.materialNome }}</strong><span>{{ numero(r.kg) }} kg</span></div><p>Morador {{ r.moradorId }}</p><p>{{ r.pontoNome }}</p><div class="record-bottom"><time :datetime="r.criadoEm">{{ dataHora(r.criadoEm) }}</time><span>Salvo localmente</span></div></li></ul>
+          <ul class="history-list"><li v-for="r in registrosVisiveis" :key="r.id" class="card record"><div class="record-top"><strong>{{ r.materialNome }}</strong><span>{{ numero(r.kg) }} kg</span></div><p>Morador {{ r.moradorNome || r.moradorId }}</p><p v-if="r.erroEnvio" class="notice error">{{ r.erroEnvio }}</p><p>{{ r.pontoNome }}</p><div class="record-bottom"><time :datetime="r.criadoEm">{{ dataHora(r.criadoEm) }}</time><span>{{ r.status === 'sincronizado' ? 'Recebido no servidor' : r.erroEnvio ? 'Envio requer atenção' : 'Aguardando envio' }}</span></div></li></ul>
           <button v-if="registrosVisiveis.length < registros.length" class="secondary full" @click="limite += 20" type="button">Mostrar mais entregas</button>
-          <p v-if="registros.length" class="hint">A exportação inclui todas as entregas locais. Ela não as envia ao gestor nem apaga os registros.</p>
+          <p v-if="registros.length" class="hint">A exportação inclui o histórico disponível e a fila pendente. Guarde uma cópia antes de limpar os dados do navegador.</p>
         </section>
       </main>
-      <footer>Recicla+ · Coletor v0<span>Município e pontos demonstrativos</span></footer>
+      <footer>Recicla+ · Coletor v0<span>{{ config.municipio }} / MS · armazenamento central na Vercel</span></footer>
     </div>
   </div>
 </body>

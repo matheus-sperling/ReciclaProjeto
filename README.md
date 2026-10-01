@@ -1,49 +1,48 @@
 # Recicla+
 
-Protótipo de coleta seletiva para municípios de Mato Grosso do Sul, publicado na Vercel. HTML, CSS e JavaScript estáticos, sem build.
+Painel municipal e coletor PWA, preservando o dashboard original. O gestor cadastra moradores e emite QR pessoais, administra equipe e pontos de coleta, e acompanha as entregas efetivamente recebidas no servidor.
 
-## Telas
+## Arquitetura
 
-- `/`: painel demonstrativo de Coxim. O `index.html` original foi preservado.
-- `/coletor`: leitura de QR pela câmera, entrada manual do identificador, conferência de material/ponto/peso, registro local e histórico com exportação JSON.
+- `/`: Vue 3, Tailwind 4, Leaflet/OpenStreetMap e Chart.js, com período selecionável e atualização automática a cada 15 segundos.
+- `/coletor`: Vue 3, html5-qrcode, câmera, leitura de imagem ou entrada manual, conferência de peso e histórico.
+- `/api/recicla`: Vercel Function Node 24, autenticação por cookie HttpOnly/SameSite, perfis gestor/coletor e isolamento por município.
+- Vercel Blob **privado**: contas com senha scrypt, cadastros e entregas em arquivos JSON. O navegador nunca recebe o token do Blob nem os hashes de senha.
+- PWA: arquivos públicos em Cache Storage; cadastros, recibos e fila temporária no `localStorage`, separados por usuário. Não há Dexie.
 
-O coletor usa o tema escolhido no painel e um layout voltado a telas móveis. Os pontos e materiais partem dos dados demonstrativos do painel. Pontos em manutenção não aceitam novas entregas.
+O QR contém apenas `recicla:morador:UUID`. O servidor valida o cadastro ativo, o ponto, o material, o peso, a data e a conta responsável. Pesos admitem três casas decimais; o painel soma em gramas. Um UUID identifica uma única entrega, mesmo com reenvio ou envio concorrente.
 
-## Vercel
+## Configuração na Vercel
 
-Manter o projeto conectado a este repositório. Usar o preset **Other**, sem comando de build, com a raiz do repositório como diretório publicado. `vercel.json` encaminha `/coletor` para `/coletor/index.html`. O painel continua em `/`.
+1. No projeto `reciclaprojeto`, crie/conecte um **Blob Store privado** em Storage, para Production e Preview. Um store público não serve para esta aplicação.
+2. Configure `BLOB_READ_WRITE_TOKEN` (a conexão do store normalmente fornece esta variável). Também é possível usar autenticação OIDC do Blob com `BLOB_STORE_ID` e token gerenciado da Vercel.
+3. Configure dois valores diferentes e aleatórios, com pelo menos 32 caracteres: `AUTH_SECRET` para sessões e `RECICLA_SETUP_TOKEN` para criar o primeiro gestor. Gere-os num ambiente privado com `node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"`. Nunca os publique no GitHub.
+4. Opcional: `RECICLA_BLOB_PREFIX=recicla-v1`. Para previews de teste, use um store separado ou um prefixo exclusivo, por exemplo `recicla-preview`; isso evita alterar dados de produção.
+5. Mantenha Framework Preset **Other**, sem Build Command nem Output Directory customizado, Node **24.x** e diretório raiz do repositório. Reimplante depois de alterar variáveis.
+6. Abra `/`, informe o código de configuração e crie seu gestor com senha de pelo menos 12 caracteres. O primeiro cadastro só acontece uma vez. Depois remova `RECICLA_SETUP_TOKEN` do ambiente e reimplante; novas contas são criadas em Cadastros → Equipe.
 
-## Uso offline
+`.env.example` descreve as variáveis sem valores secretos. O acesso inicial informa configuração pendente enquanto o store e os segredos não estiverem disponíveis. Não existe login padrão nem senha embutida.
 
-1. Abra `/coletor` com internet pela Vercel (HTTPS).
-2. Aguarde **Pronto para uso offline**. Isso confirma o cache da interface e das três dependências CDN.
-3. Adicione à tela inicial pelo menu do navegador, quando essa opção estiver disponível. A instalação não é necessária para registrar entregas offline.
-4. Sem rede, reabra `/coletor` e registre entregas. A câmera depende de permissão do navegador; a entrada manual também funciona offline.
+## Operação
 
-O service worker tem escopo `/coletor`: ele não controla nem coloca o mapa do gestor em cache. Uma atualização aguarda o fechamento das telas abertas do coletor. Ao modificar seus recursos, incrementar `CACHE` em `coletor-sw.js`.
+1. Gestor: revise os pontos demonstrativos de Coxim em **Cadastros → Pontos**, substituindo nomes, endereços e coordenadas pelos locais oficiais. Outros municípios começam sem pontos.
+2. Cadastre o morador em **Moradores**, baixe o QR e entregue-o à pessoa. Crie uma conta do coletor em **Equipe**.
+3. Coletor: abra `/coletor` com internet, entre e aguarde **Pronto para uso offline**. Clique em **Atualizar cadastros** antes de sair para a coleta. Apenas moradores e pontos presentes no catálogo baixado podem ser usados offline.
+4. Leia o QR pela câmera, escolha uma imagem do QR ou informe o UUID. Selecione ponto/material, informe o peso e confirme.
+5. Sem conexão, a entrega fica **Aguardando envio**. Ao reconectar, a aplicação aberta envia automaticamente e só remove a fila após guardar o recibo do servidor. Sessão expirada exige novo login na mesma conta; a fila permanece preservada.
+6. O gestor verá os quilogramas no período correspondente à data da coleta, no fuso de MS, após o servidor confirmar o recebimento.
 
-## Identificador do morador
+A sincronização ocorre com a aplicação aberta; não depende de execução em segundo plano do sistema operacional. Cadastros desativados podem provocar rejeição de uma entrega offline: ela permanece na fila com o motivo visível para resolução pelo gestor. Exporte o JSON antes de limpar dados do navegador. Limpar armazenamento, usar modo privado ou trocar de aparelho pode apagar entregas ainda pendentes. O histórico central continua no Blob.
 
-O contrato inicial de QR é `recicla:morador:morador-001`. O identificador aceita até 64 caracteres (letras ASCII, números, hífen e sublinhado), iniciando por letra ou número. Na entrada manual, informar somente `morador-001`.
+## Limites do Blob nesta versão
 
-QRs de outros formatos são recusados. O QR é lido pela biblioteca html5-qrcode 2.3.8, sem implementação própria de decodificação. Não há geração de QR, cadastro de moradores ou comprovação de identidade nesta versão.
-
-## Entregas locais
-
-Dexie 4 usa IndexedDB com banco `recicla`, versão 1, tabela `entregas`. Esquema:
-
-```js
-db.version(1).stores({ entregas: 'id, moradorId, pontoId, materialId, criadoEm, status' });
-```
-
-Cada entrega contém UUID, identificador do morador, ponto e material com nomes, peso em kg, município/UF, indicador demonstrativo, data/hora ISO e `status: 'local'`. O horário é apresentado no fuso de Mato Grosso do Sul. O peso aceita até três casas decimais, deve ser positivo e não pode ultrapassar 10.000 kg. Salvar exige confirmação; leituras repetidas de câmera não registram entregas automaticamente.
-
-O histórico e sua exportação JSON incluem os registros deste navegador e desta origem. **Ainda não existe API, autenticação ou sincronização com o painel do gestor.** O painel continua exibindo seus dados demonstrativos.
-
-Exportar prepara um arquivo com todas as entregas; não apaga dados e não os envia a outro dispositivo. Limpar os dados do navegador remove o banco. Endereços de preview e produção têm bancos separados; use o endereço definitivo para a coleta.
+Blob armazena arquivos, não tabelas SQL. As listagens leem documentos e agregam as entregas no servidor. Esta implementação atende a v0; o custo e a duração das consultas crescem com o número de arquivos. Valide volume real e limites da Vercel antes de expandir a operação municipal. Arquivos de limitação de tentativas de login devem ser considerados na manutenção do store. Não há exclusão automática de registros.
 
 ## Verificação
 
-Regras do formulário: `node --test tests/core.test.cjs`.
+```sh
+npm ci
+npm test
+```
 
-Na revisão em navegador, verificar: registro e persistência após recarga, abertura e salvamento sem rede após preparo do cache, exportação JSON, tratamento de permissão de câmera, QR fora do formato e largura de 360 px sem rolagem horizontal. A leitura física da câmera deve ser verificada também em um celular com HTTPS.
+Os testes de domínio usam um adaptador em memória somente dentro dos testes e verificam permissões, senhas/sessões, cadastro, rejeições, soma de pesos e idempotência concorrente. O fluxo de interface também precisa ser verificado no navegador e no ambiente publicado, incluindo escrita/leitura no Blob real. Câmera física exige HTTPS, permissão e teste em celular.
