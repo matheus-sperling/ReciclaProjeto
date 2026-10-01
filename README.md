@@ -2,6 +2,8 @@
 
 Painel municipal e coletor PWA, preservando o dashboard original. O gestor cadastra moradores e emite QR pessoais, administra equipe e pontos de coleta, e acompanha as entregas efetivamente recebidas no servidor.
 
+Para apresentar o projeto, siga o [guia rápido de demonstração](GUIA-DEMONSTRACAO.md).
+
 ## Arquitetura
 
 - `/`: Vue 3, Tailwind 4, Leaflet/OpenStreetMap e Chart.js, com período selecionável e atualização automática a cada 15 segundos.
