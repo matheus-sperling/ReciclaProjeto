@@ -51,6 +51,7 @@ const catalog = ref<Catalogo | null>(null),
   online = ref(navigator.onLine),
   offlineReady = ref(false),
   camera = ref(false),
+  cameraStarting = ref(false),
   manual = ref(""),
   resident = ref<Morador | null>(null),
   point = ref(""),
@@ -77,7 +78,8 @@ const queue = computed(() => rows.value.filter((r) => r.status === "pendente")),
       !!weight.value ||
       !!manual.value ||
       !!review.value ||
-      camera.value,
+      camera.value ||
+      cameraStarting.value,
   );
 function local() {
   try {
@@ -116,7 +118,7 @@ async function remoteHistory() {
   }
 }
 async function stop() {
-  if (scanner && camera.value)
+  if (scanner?.isScanning)
     try {
       await scanner.stop();
     } catch {}
@@ -142,22 +144,46 @@ async function identify(text: string) {
   }
 }
 async function startCamera() {
+  if (camera.value || cameraStarting.value) return;
   error.value = "";
+  if (!window.isSecureContext) {
+    error.value =
+      "A câmera exige uma conexão segura. Abra o aplicativo por HTTPS; um endereço HTTP da rede local não permite usar a câmera.";
+    return;
+  }
+  if (!navigator.mediaDevices?.getUserMedia) {
+    error.value =
+      "Este navegador não oferece acesso à câmera. Abra o aplicativo no Chrome ou Safari, ou use uma imagem ou o código manual.";
+    return;
+  }
+  cameraStarting.value = true;
   await nextTick();
   try {
     scanner ??= new Html5Qrcode("recicla-scanner");
     await scanner.start(
       { facingMode: "environment" },
-      { fps: 8, qrbox: { width: 220, height: 220 } },
+      {
+        fps: 8,
+        qrbox: (width, height) => {
+          const size = Math.min(220, Math.floor(Math.min(width, height) * 0.7));
+          return { width: size, height: size };
+        },
+      },
       (text) => {
         void identify(text);
       },
       () => {},
     );
     camera.value = true;
-  } catch {
-    error.value =
-      "Não foi possível abrir a câmera. Autorize o acesso ou use uma imagem ou o código manual.";
+  } catch (e) {
+    const reason = String(e);
+    error.value = /NotAllowedError|PermissionDeniedError/i.test(reason)
+      ? "O acesso à câmera foi bloqueado. Autorize a câmera nas configurações deste site e tente novamente."
+      : /NotFoundError|DevicesNotFoundError/i.test(reason)
+        ? "Nenhuma câmera foi encontrada. Use uma imagem ou o código manual."
+        : "Não foi possível abrir a câmera. Feche outros aplicativos que estejam usando a câmera e tente novamente, ou use uma imagem ou o código manual.";
+  } finally {
+    cameraStarting.value = false;
   }
 }
 async function image(event: Event) {
@@ -489,11 +515,13 @@ onBeforeUnmount(() => {
           Nova entrega</button
         ><button
           :class="{ active: tab === 'historico' }"
+          :disabled="camera || cameraStarting"
           @click="tab = 'historico'"
         >
           Histórico</button
         ><button
           :class="{ active: tab === 'pendencias' }"
+          :disabled="camera || cameraStarting"
           @click="tab = 'pendencias'"
         >
           Pendências<span v-if="queue.length" class="badge amber">{{
@@ -539,17 +567,27 @@ onBeforeUnmount(() => {
           <div v-if="!resident" class="scan-actions">
             <button
               class="button primary"
+              :disabled="cameraStarting"
               @click="camera ? stop() : startCamera()"
             >
               <Camera :size="17" />{{
-                camera ? "Fechar câmera" : "Ler com a câmera"
+                cameraStarting
+                  ? "Abrindo câmera…"
+                  : camera
+                    ? "Fechar câmera"
+                    : "Ler com a câmera"
               }}</button
             ><label class="button secondary file-input"
               ><ImagePlus :size="17" />Escolher imagem<input
                 type="file"
                 accept="image/*"
+                :disabled="cameraStarting"
                 @change="image" /></label
-            ><button class="button secondary" @click="showManual = !showManual">
+            ><button
+              class="button secondary"
+              :disabled="cameraStarting"
+              @click="showManual = !showManual"
+            >
               <Keyboard :size="17" />Código manual
             </button>
           </div>
