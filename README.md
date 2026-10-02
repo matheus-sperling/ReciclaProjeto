@@ -1,6 +1,6 @@
 # Recicla+ · Gestão municipal da coleta seletiva
 
-Aplicação Vue 3 para municípios de Mato Grosso do Sul. O mesmo repositório mantém todo o histórico do projeto. A persistência atual usa PostgreSQL/Neon, Prisma e isolamento por município; o Vercel Blob foi retirado.
+Aplicação Vue 3 para municípios de Mato Grosso do Sul. O mesmo repositório mantém todo o histórico do projeto. A persistência atual usa PostgreSQL/Neon, Prisma e isolamento por município.
 
 ## Funcionalidades
 
