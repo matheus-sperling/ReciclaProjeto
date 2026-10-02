@@ -3,6 +3,7 @@ import { session, state, ApiError } from "./lib/api";
 import { restoreOfflineUser } from "./lib/offline";
 export const router = createRouter({
   history: createWebHistory(),
+  scrollBehavior: (_to, _from, savedPosition) => savedPosition || { top: 0 },
   routes: [
     {
       path: "/",

@@ -365,11 +365,15 @@ function choose(row: Row) {
         @retry="load"
       />
       <div v-if="!loading && !error && rows.length" class="table-scroll">
-        <table>
-          <thead>
-            <tr>
-              <th>Nome</th>
-              <th>
+        <table
+          class="responsive-table registry-table"
+          role="table"
+          :aria-label="titles[kind]"
+        >
+          <thead role="rowgroup">
+            <tr role="row">
+              <th role="columnheader">Nome</th>
+              <th role="columnheader">
                 {{
                   kind === "equipe"
                     ? "Perfil"
@@ -380,13 +384,13 @@ function choose(row: Row) {
                         : "Local"
                 }}
               </th>
-              <th>Situação</th>
-              <th class="actions-th">Ações</th>
+              <th role="columnheader">Situação</th>
+              <th class="actions-th" role="columnheader">Ações</th>
             </tr>
           </thead>
-          <tbody>
-            <tr v-for="row in rows" :key="row.id">
-              <td>
+          <tbody role="rowgroup">
+            <tr v-for="row in rows" :key="row.id" role="row">
+              <td class="entity-column" role="cell">
                 <div class="entity-cell">
                   <span class="entity-icon"
                     ><Building2
@@ -406,7 +410,18 @@ function choose(row: Row) {
                   >
                 </div>
               </td>
-              <td>
+              <td
+                role="cell"
+                :data-label="
+                  kind === 'equipe'
+                    ? 'Perfil'
+                    : kind === 'municipios'
+                      ? 'UF'
+                      : kind === 'moradores'
+                        ? 'Bairro'
+                        : 'Local'
+                "
+              >
                 {{
                   kind === "equipe"
                     ? roleLabel[row.role!]
@@ -417,12 +432,12 @@ function choose(row: Row) {
                         : row.local
                 }}
               </td>
-              <td>
+              <td role="cell" data-label="Situação">
                 <span class="badge" :class="row.ativo ? 'green' : 'amber'">{{
                   row.ativo ? "Ativo" : "Inativo"
                 }}</span>
               </td>
-              <td>
+              <td class="actions-column" role="cell" data-label="Ações">
                 <div class="row-actions">
                   <button
                     v-if="kind === 'municipios'"

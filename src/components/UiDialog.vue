@@ -31,6 +31,6 @@ const open = defineModel<boolean>("open", { required: true });
             ><X :size="20"
           /></DialogClose>
         </header>
-        <slot /> </DialogContent></DialogPortal
+        <div class="dialog-body"><slot /></div> </DialogContent></DialogPortal
   ></DialogRoot>
 </template>

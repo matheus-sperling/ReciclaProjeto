@@ -1,7 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import { Client } from "pg";
 import { readFile, writeFile } from "node:fs/promises";
-import { ids, testPassword } from "../fixture";
+import { actor, ids, testPassword } from "../fixture";
 import { createOTP } from "@better-auth/utils/otp";
 import { base32 } from "@better-auth/utils/base32";
 let storage: Awaited<
@@ -32,15 +32,55 @@ async function expectMapCenter(page: Page, lat: number, lng: number) {
   expect(coordinates?.[0]).toBeCloseTo(lat, 3);
   expect(coordinates?.[1]).toBeCloseTo(lng, 3);
 }
+async function expectPortraitLayout(page: Page) {
+  const problems = await page.evaluate(() => {
+    const issues: string[] = [];
+    if (document.documentElement.scrollWidth > innerWidth + 1)
+      issues.push("A página exige rolagem horizontal");
+    for (const element of document.querySelectorAll<HTMLElement>(
+      '.responsive-table, .table-scroll, .dialog-body, [role="dialog"]',
+    )) {
+      if (element.clientWidth && element.scrollWidth > element.clientWidth + 1)
+        issues.push("Conteúdo cortado em " + element.className);
+    }
+    for (const element of document.querySelectorAll<HTMLElement>(
+      '.button, .icon-button, .text-button, .collector-tabs button, input:not([type="file"]), select, textarea',
+    )) {
+      const rect = element.getBoundingClientRect();
+      if (!rect.width || !rect.height || element.closest("[inert]")) continue;
+      if (rect.left < -1 || rect.right > innerWidth + 1)
+        issues.push(
+          "Controle fora da tela: " +
+            (element.getAttribute("aria-label") || element.textContent),
+        );
+      if (rect.height < 44)
+        issues.push("Controle pequeno para toque: " + element.className);
+      if (
+        element.matches("input, select, textarea") &&
+        parseFloat(getComputedStyle(element).fontSize) < 16
+      )
+        issues.push("Campo provoca zoom automático: " + element.tagName);
+    }
+    return issues;
+  });
+  expect(problems).toEqual([]);
+}
 for (const viewport of [
   { width: 1440, height: 1000 },
+  { width: 320, height: 568 },
+  { width: 360, height: 640 },
   { width: 390, height: 844 },
+  { width: 430, height: 932 },
 ])
   for (const theme of ["light", "dark"])
     test(`Todas as telas municipais · ${viewport.width}px · ${theme}`, async ({
       browser,
     }) => {
-      const publicContext = await browser.newContext({ viewport });
+      const publicContext = await browser.newContext({
+        viewport,
+        isMobile: viewport.width < 700,
+        hasTouch: viewport.width < 700,
+      });
       await publicContext.addInitScript(
         (value) => localStorage.setItem("recicla-theme", value),
         theme,
@@ -60,15 +100,29 @@ for (const viewport of [
           () => document.documentElement.scrollWidth <= innerWidth + 1,
         ),
       ).toBe(true);
+      if (viewport.width < 700) await expectPortraitLayout(publicPage);
       await publicPage.screenshot({
         path: `test-results/${viewport.width}-${theme}-login.png`,
         fullPage: true,
         animations: "disabled",
       });
+      await publicPage.goto("/pagina-inexistente");
+      await expect(
+        publicPage.getByRole("heading", {
+          name: "Esta página não foi encontrada.",
+        }),
+      ).toBeVisible();
+      if (viewport.width < 700) await expectPortraitLayout(publicPage);
+      await publicPage.screenshot({
+        path: `test-results/${viewport.width}-${theme}-404.png`,
+        fullPage: true,
+      });
       await publicContext.close();
       const context = await browser.newContext({
         storageState: storage,
         viewport,
+        isMobile: viewport.width < 700,
+        hasTouch: viewport.width < 700,
       });
       await context.addInitScript(
         (value) => localStorage.setItem("recicla-theme", value),
@@ -96,6 +150,7 @@ for (const viewport of [
             () => document.documentElement.scrollWidth <= innerWidth + 1,
           ),
         ).toBe(true);
+        if (viewport.width < 700) await expectPortraitLayout(page);
         await page.screenshot({
           path: `test-results/${viewport.width}-${theme}-${path.slice(1)}.png`,
           fullPage: true,
@@ -124,6 +179,7 @@ for (const viewport of [
               .getByRole("dialog")
               .evaluate((el) => el.scrollWidth <= el.clientWidth + 1),
           ).toBe(true);
+          if (viewport.width < 700) await expectPortraitLayout(page);
           await page.screenshot({
             path: `test-results/point-picker-${viewport.width}-${theme}.png`,
             fullPage: true,
@@ -131,6 +187,28 @@ for (const viewport of [
           });
           await page
             .getByRole("button", { name: "Fechar", exact: true })
+            .click();
+        }
+        if (viewport.width < 700 && ["/moradores", "/equipe"].includes(path)) {
+          await page
+            .getByRole("button", {
+              name:
+                path === "/moradores"
+                  ? "Cadastrar morador"
+                  : "Cadastrar integrante",
+              exact: true,
+            })
+            .click();
+          await expect(page.getByRole("dialog")).toBeVisible();
+          await expectPortraitLayout(page);
+          await page
+            .getByRole("button", { name: "Salvar cadastro", exact: true })
+            .scrollIntoViewIfNeeded();
+          await expect(
+            page.getByRole("button", { name: "Salvar cadastro", exact: true }),
+          ).toBeInViewport();
+          await page
+            .getByRole("button", { name: "Cancelar", exact: true })
             .click();
         }
       }
@@ -322,6 +400,11 @@ test("Atualização do aplicativo espera o formulário seguro", async ({
   const original = await readFile("dist/coletor-sw.js", "utf8");
   try {
     await login(page, "coletor-a@teste.invalid");
+    // Finish installing the worker before reloading; a reload during installation
+    // can cancel the first registration and leave the document uncontrolled.
+    await expect(
+      page.getByText("Pronto para coleta offline", { exact: true }),
+    ).toBeVisible({ timeout: 30000 });
     // A document opened at /entrar can remain outside /coletor's worker scope
     // after SPA navigation. Reload within the scope to exercise a waiting update.
     await page.reload();
@@ -394,6 +477,292 @@ test("Estados vazio, erro e falta de permissão", async ({ browser }) => {
   await context.close();
 });
 
+test("Menu móvel: rolagem, foco, fechamento e retorno ao topo", async ({
+  browser,
+}) => {
+  const context = await browser.newContext({
+    storageState: storage,
+    viewport: { width: 320, height: 480 },
+    isMobile: true,
+    hasTouch: true,
+  });
+  const page = await context.newPage();
+  await page.goto("/moradores");
+  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+  await expect(
+    page.getByRole("button", { name: "Abrir menu", exact: true }),
+  ).toBeInViewport();
+  await page.getByRole("button", { name: "Abrir menu", exact: true }).click();
+  const menu = page.getByRole("dialog", { name: "Menu principal" });
+  await expect(menu).toBeVisible();
+  await expect(
+    menu.getByRole("button", { name: "Fechar menu", exact: true }),
+  ).toBeFocused();
+  await expect(page.locator(".workspace")).toHaveAttribute("inert", "");
+  const theme = menu.getByRole("button", { name: "Ativar modo escuro" });
+  await theme.focus();
+  await expect(theme).toBeInViewport();
+  await page.keyboard.press("Tab");
+  await expect(menu.locator(".brand")).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(menu).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Abrir menu", exact: true }),
+  ).toBeFocused();
+  await page.getByRole("button", { name: "Abrir menu", exact: true }).click();
+  await page.locator('.nav-link[href="/entregas"]').click();
+  await expect(
+    page.getByRole("heading", { name: "Entregas recebidas" }),
+  ).toBeVisible();
+  await expect.poll(() => page.evaluate(() => scrollY)).toBe(0);
+  await expectPortraitLayout(page);
+  await context.close();
+});
+
+for (const width of [320, 360, 390, 430])
+  test(`Conteúdo longo, QR, confirmações, revisão e pendências · ${width}px`, async ({
+    browser,
+  }) => {
+    const context = await browser.newContext({
+      storageState: storage,
+      viewport: { width, height: Math.round(width * 1.7) },
+      isMobile: true,
+      hasTouch: true,
+    });
+    const user = actor("gestor");
+    const resident = {
+      id: ids.ra,
+      municipioId: ids.a,
+      nome: "Morador " + "x".repeat(112),
+      bairro: "Bairro " + "y".repeat(73),
+      ativo: true,
+      version: 1,
+    };
+    const point = {
+      id: ids.pa,
+      municipioId: ids.a,
+      nome: "Ponto " + "z".repeat(114),
+      local: "Referência " + "w".repeat(160),
+      lat: -18.5033,
+      lng: -54.7606,
+      ativo: true,
+      version: 1,
+    };
+    const team = {
+      id: ids.ca,
+      nome: "Coletor " + "c".repeat(112),
+      email: "e".repeat(220) + "@teste.invalid",
+      role: "coletor",
+      ativo: true,
+      version: 1,
+    };
+    const receipt = {
+      id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+      municipioId: ids.a,
+      moradorId: ids.ra,
+      coletorId: ids.ga,
+      pontoId: ids.pa,
+      materialId: "papel",
+      kg: 9999.999,
+      criadoEm: new Date().toISOString(),
+      recebidoEm: new Date().toISOString(),
+      moradorNome: resident.nome,
+      coletorNome: team.nome,
+      pontoNome: point.nome,
+      materialNome: "Papel",
+      status: "sincronizado",
+    };
+    // Browser-only fixtures exercise text wrapping without changing operational data.
+    await context.route("**/api/recicla?**", async (route) => {
+      const action = new URL(route.request().url()).searchParams.get("action")!;
+      if (action === "equipe" && route.request().method() === "PATCH") {
+        await route.fulfill({
+          json: {
+            temporaryPassword: "Senha temporária de teste " + "s".repeat(100),
+          },
+        });
+        return;
+      }
+      const fixtures: Record<string, unknown> = {
+        moradores: { moradores: [resident], total: 1 },
+        pontos: { pontos: [point], total: 1 },
+        equipe: { users: [team], total: 1 },
+        entregas: { entregas: [receipt], total: 1 },
+        catalogo: {
+          municipio: user.municipio,
+          moradores: [resident],
+          pontos: [point],
+          materiais: [{ id: "papel", nome: "Papel" }],
+          atualizadoEm: new Date().toISOString(),
+        },
+      };
+      if (action in fixtures) await route.fulfill({ json: fixtures[action] });
+      else await route.continue();
+    });
+    const page = await context.newPage();
+    for (const path of ["/moradores", "/pontos", "/equipe", "/entregas"]) {
+      await page.goto(path);
+      await expect(page.locator(".responsive-table tbody tr")).toHaveCount(1);
+      await expectPortraitLayout(page);
+      await page.screenshot({
+        path: `test-results/long-${width}-${path.slice(1)}.png`,
+        fullPage: true,
+      });
+      if (path === "/moradores") {
+        await page
+          .getByRole("button", { name: "QR de " + resident.nome, exact: true })
+          .click();
+        await expect(
+          page.getByLabel("Código QR de identificação"),
+        ).toBeVisible();
+        await expectPortraitLayout(page);
+        await page.getByRole("button", { name: "Fechar", exact: true }).click();
+      }
+      if (path === "/pontos") {
+        await page
+          .getByRole("button", { name: "Excluir " + point.nome, exact: true })
+          .click();
+        await expect(page.getByRole("dialog")).toContainText(
+          "Excluir ponto de coleta",
+        );
+        await expectPortraitLayout(page);
+        await page
+          .getByRole("button", { name: "Cancelar", exact: true })
+          .click();
+      }
+      if (path === "/equipe") {
+        await page
+          .getByRole("button", {
+            name: "Redefinir acesso de " + team.nome,
+            exact: true,
+          })
+          .click();
+        await expectPortraitLayout(page);
+        await page
+          .getByRole("button", { name: "Confirmar alteração", exact: true })
+          .click();
+        await expect(
+          page.getByRole("heading", { name: "Acesso preparado" }),
+        ).toBeVisible();
+        await expectPortraitLayout(page);
+        await page
+          .getByRole("button", { name: "Já guardei a senha", exact: true })
+          .click();
+      }
+    }
+    await page.evaluate(
+      ({ receipt, key }) => {
+        const queue = Array.from({ length: 128 }, (_, index) => ({
+          ...receipt,
+          id: `dddddddd-dddd-4ddd-8ddd-${index.toString(16).padStart(12, "0")}`,
+          status: "pendente",
+          recebidoEm: undefined,
+          erroEnvio: "Mensagem de atenção " + "e".repeat(140),
+        }));
+        localStorage.setItem(key + "outbox", JSON.stringify(queue));
+        localStorage.setItem(key + "receipts", JSON.stringify([receipt]));
+      },
+      { receipt, key: `recicla-v3:${ids.a}:${ids.ga}:` },
+    );
+    await page.goto("/coletor");
+    await expect(
+      page.getByText("Pronto para coleta offline", { exact: true }),
+    ).toBeVisible();
+    await expect
+      .poll(() => page.evaluate(() => !!navigator.serviceWorker.controller))
+      .toBe(true);
+    await expect(
+      page.getByText("128 entrega(s) aguardando envio"),
+    ).toBeVisible();
+    await page
+      .getByRole("button", { name: "Pendências", exact: false })
+      .click();
+    await expect(page.locator(".history-record")).toHaveCount(128);
+    await expectPortraitLayout(page);
+    await page.screenshot({ path: `test-results/pending-${width}.png` });
+    await page.getByRole("button", { name: "Histórico", exact: true }).click();
+    await expect(
+      page.getByText("Recibo confirmado", { exact: true }),
+    ).toBeVisible();
+    await expectPortraitLayout(page);
+    await page
+      .getByRole("button", { name: "Nova entrega", exact: true })
+      .click();
+    await page
+      .getByRole("button", { name: "Código manual", exact: true })
+      .click();
+    await page
+      .getByLabel("QR ou identificador do morador")
+      .fill("recicla:morador:" + ids.ra);
+    await page
+      .getByRole("button", { name: "Localizar morador", exact: true })
+      .click();
+    await page
+      .getByLabel("Ponto de coleta", { exact: true })
+      .selectOption(ids.pa);
+    await page.getByLabel("Material", { exact: true }).selectOption("papel");
+    await page.getByLabel("Peso em quilogramas").fill("9999,999");
+    await expectPortraitLayout(page);
+    await page
+      .getByRole("button", { name: "Revisar entrega", exact: true })
+      .click();
+    await expect(page.getByRole("dialog")).toContainText(resident.nome);
+    await expectPortraitLayout(page);
+    await page.screenshot({ path: `test-results/review-${width}.png` });
+    await page.getByRole("button", { name: "Voltar", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Sair da conta", exact: true })
+      .click();
+    await expectPortraitLayout(page);
+    await page
+      .getByRole("button", { name: "Continuar coletando", exact: true })
+      .click();
+    // Reduced available height also checks that the dialog body can scroll independently.
+    await page.setViewportSize({ width, height: 400 });
+    await page
+      .getByRole("button", { name: "Revisar entrega", exact: true })
+      .click();
+    const confirm = page.getByRole("button", {
+      name: "Confirmar entrega",
+      exact: true,
+    });
+    await confirm.scrollIntoViewIfNeeded();
+    await expect(confirm).toBeInViewport();
+    await expectPortraitLayout(page);
+    await page.getByRole("button", { name: "Fechar", exact: true }).click();
+    await context.close();
+  });
+
+test("Login com autenticador e recuperação no celular", async ({ browser }) => {
+  const context = await browser.newContext({
+    viewport: { width: 320, height: 568 },
+    isMobile: true,
+    hasTouch: true,
+  });
+  await context.route("**/api/auth/sign-in/email", (route) =>
+    route.fulfill({ json: { twoFactorRedirect: true } }),
+  );
+  const page = await context.newPage();
+  await page.goto("/entrar");
+  await page
+    .getByLabel("E-mail", { exact: true })
+    .fill("interface@teste.invalid");
+  await page.locator("#password").fill(testPassword);
+  await page.getByRole("button", { name: "Entrar", exact: true }).click();
+  await expect(
+    page.getByLabel("Código do aplicativo autenticador", { exact: true }),
+  ).toBeVisible();
+  await expectPortraitLayout(page);
+  await page
+    .getByRole("button", { name: "Usar código de recuperação", exact: true })
+    .click();
+  await expect(
+    page.getByLabel("Código de recuperação", { exact: true }),
+  ).toBeVisible();
+  await expectPortraitLayout(page);
+  await context.close();
+});
+
 test("Administrador: primeiro acesso, autenticador e telas da plataforma nos dois temas", async ({
   browser,
 }) => {
@@ -408,7 +777,9 @@ test("Administrador: primeiro acesso, autenticador e telas da plataforma nos doi
   );
   await db.end();
   const context = await browser.newContext({
-    viewport: { width: 1440, height: 1000 },
+    viewport: { width: 320, height: 568 },
+    isMobile: true,
+    hasTouch: true,
   });
   const page = await context.newPage();
   page.setDefaultTimeout(15000);
@@ -429,6 +800,7 @@ test("Administrador: primeiro acesso, autenticador e telas da plataforma nos doi
     ),
   ).toBeVisible();
   const newPassword = testPassword + "-Nova";
+  await expectPortraitLayout(page);
   await page.getByLabel("Senha atual", { exact: true }).fill(testPassword);
   await page.getByLabel("Nova senha", { exact: true }).fill(newPassword);
   await page
@@ -451,6 +823,7 @@ test("Administrador: primeiro acesso, autenticador e telas da plataforma nos doi
     .click();
   const setup = await (await setupResponse).json();
   expect(setup.backupCodes).toHaveLength(10);
+  await expectPortraitLayout(page);
   await expect(
     page.getByLabel("QR para configurar o autenticador"),
   ).toBeVisible();
@@ -472,9 +845,12 @@ test("Administrador: primeiro acesso, autenticador e telas da plataforma nos doi
   await expect(
     page.getByRole("heading", { name: "Municípios", exact: true }),
   ).toBeVisible();
-  for (const width of [1440, 390])
+  for (const width of [1440, 320, 360, 390, 430])
     for (const theme of ["light", "dark"]) {
-      await page.setViewportSize({ width, height: width === 390 ? 844 : 1000 });
+      await page.setViewportSize({
+        width,
+        height: width < 700 ? Math.round(width * 2.16) : 1000,
+      });
       await page.evaluate((value) => {
         document.documentElement.classList.toggle("dark", value === "dark");
       }, theme);
@@ -494,7 +870,7 @@ test("Administrador: primeiro acesso, autenticador e telas da plataforma nos doi
             .getByRole("button", { name: "Abrir", exact: true })
             .click();
         } else if ((await page.url()).endsWith(path) === false) {
-          if (width === 390)
+          if (width < 700)
             await page
               .getByRole("button", { name: "Abrir menu", exact: true })
               .click();
@@ -509,6 +885,7 @@ test("Administrador: primeiro acesso, autenticador e telas da plataforma nos doi
             () => document.documentElement.scrollWidth <= innerWidth + 1,
           ),
         ).toBe(true);
+        if (width < 700) await expectPortraitLayout(page);
         await page.screenshot({
           path: `test-results/admin-${width}-${theme}-${path.slice(1)}.png`,
           fullPage: true,
@@ -523,7 +900,7 @@ test("Administrador: primeiro acesso, autenticador e telas da plataforma nos doi
     .filter({ hasText: "Campo Grande" })
     .getByRole("button", { name: "Abrir", exact: true })
     .click();
-  if ((await page.viewportSize())!.width === 390)
+  if ((await page.viewportSize())!.width < 700)
     await page.getByRole("button", { name: "Abrir menu", exact: true }).click();
   await page.locator('.nav-link[href="/pontos"]').click();
   await page
@@ -551,7 +928,7 @@ test("Administrador: primeiro acesso, autenticador e telas da plataforma nos doi
     .click();
   await page.getByRole("button", { name: "Excluir", exact: true }).click();
   await expect(page.getByText("Ponto de coleta excluído.")).toBeVisible();
-  if ((await page.viewportSize())!.width === 390)
+  if ((await page.viewportSize())!.width < 700)
     await page.getByRole("button", { name: "Abrir menu", exact: true }).click();
   await page.locator('.nav-link[href="/equipe"]').click();
   await page

@@ -2,11 +2,16 @@ import { test, expect } from "@playwright/test";
 import { makeClient } from "../../server/db";
 import { testPassword } from "../fixture";
 
-for (const width of [1440, 390])
+for (const width of [1440, 320, 360, 390, 430])
   for (const theme of ["light", "dark"]) {
     test(`Ativação · ${width}px · ${theme}`, async ({ browser }) => {
       const context = await browser.newContext({
-        viewport: { width, height: width === 390 ? 844 : 1100 },
+        viewport: {
+          width,
+          height: width < 700 ? Math.round(width * 2.16) : 1100,
+        },
+        isMobile: width < 700,
+        hasTouch: width < 700,
       });
       await context.addInitScript(
         (value) => localStorage.setItem("recicla-theme", value),

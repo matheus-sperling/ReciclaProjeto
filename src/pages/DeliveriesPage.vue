@@ -114,34 +114,38 @@ onBeforeUnmount(() => generation++);
       @retry="load"
     />
     <div v-if="rows.length && !loading && !error" class="table-scroll">
-      <table>
-        <thead>
-          <tr>
-            <th>Entrega</th>
-            <th>Morador / Coletor</th>
-            <th>Ponto / Material</th>
-            <th>Peso</th>
-            <th>Recibo</th>
+      <table
+        class="responsive-table delivery-table"
+        role="table"
+        aria-label="Entregas recebidas"
+      >
+        <thead role="rowgroup">
+          <tr role="row">
+            <th role="columnheader">Entrega</th>
+            <th role="columnheader">Morador / Coletor</th>
+            <th role="columnheader">Ponto / Material</th>
+            <th role="columnheader">Peso</th>
+            <th role="columnheader">Recibo</th>
           </tr>
         </thead>
-        <tbody>
-          <tr v-for="row in rows" :key="row.id">
-            <td>
+        <tbody role="rowgroup">
+          <tr v-for="row in rows" :key="row.id" role="row">
+            <td role="cell" data-label="Entrega">
               {{ dateTime(row.criadoEm)
               }}<span class="entity-meta mono">{{ row.id }}</span>
             </td>
-            <td>
+            <td role="cell" data-label="Morador / Coletor">
               <span class="entity-name">{{ row.moradorNome }}</span
               ><span class="entity-meta">{{ row.coletorNome }}</span>
             </td>
-            <td>
+            <td role="cell" data-label="Ponto / Material">
               {{ row.pontoNome
               }}<span class="entity-meta">{{ row.materialNome }}</span>
             </td>
-            <td>
+            <td role="cell" data-label="Peso">
               <strong>{{ number(row.kg) }} kg</strong>
             </td>
-            <td>
+            <td role="cell" data-label="Recibo">
               <span class="badge green">Recebido</span
               ><span class="entity-meta">{{
                 row.recebidoEm ? dateTime(row.recebidoEm) : ""

@@ -1,5 +1,12 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import {
+  computed,
+  nextTick,
+  onBeforeUnmount,
+  onMounted,
+  ref,
+  watch,
+} from "vue";
 import { useRoute, useRouter } from "vue-router";
 import {
   Leaf,
@@ -24,6 +31,52 @@ const route = useRoute(),
   menu = ref(false),
   error = ref(""),
   leaving = ref(false);
+const mobileMedia = window.matchMedia("(max-width: 700px)");
+const mobile = ref(mobileMedia.matches);
+const sidebar = ref<HTMLElement>();
+const menuButton = ref<HTMLButtonElement>();
+let previousOverflow = "";
+function updateMobile() {
+  mobile.value = mobileMedia.matches;
+  menu.value = false;
+}
+function menuKeys(event: KeyboardEvent) {
+  if (!mobile.value || !menu.value) return;
+  if (event.key === "Escape") {
+    event.preventDefault();
+    menu.value = false;
+  } else if (event.key === "Tab") {
+    const controls = sidebar.value?.querySelectorAll<HTMLElement>(
+      "a[href], button:not(:disabled)",
+    );
+    const first = controls?.[0];
+    const last = controls?.[controls.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last?.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first?.focus();
+    }
+  }
+}
+watch(menu, async (open) => {
+  if (open) {
+    previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    await nextTick();
+    sidebar.value?.querySelector<HTMLButtonElement>(".sidebar-close")?.focus();
+  } else {
+    document.body.style.overflow = previousOverflow;
+    await nextTick();
+    if (mobile.value) menuButton.value?.focus();
+  }
+});
+onMounted(() => mobileMedia.addEventListener("change", updateMobile));
+onBeforeUnmount(() => {
+  mobileMedia.removeEventListener("change", updateMobile);
+  if (menu.value) document.body.style.overflow = previousOverflow;
+});
 watch(
   () => route.path,
   () => {
@@ -82,12 +135,23 @@ async function logout() {
 <template>
   <div v-if="shell" class="app-shell">
     <button
-      v-if="menu"
+      v-if="mobile && menu"
       class="mobile-scrim"
       aria-label="Fechar menu"
+      tabindex="-1"
       @click="menu = false"
     />
-    <aside class="sidebar" :class="{ open: menu }">
+    <aside
+      id="navigation-menu"
+      ref="sidebar"
+      class="sidebar"
+      :class="{ open: menu }"
+      :inert="mobile && !menu"
+      :role="mobile && menu ? 'dialog' : undefined"
+      :aria-modal="mobile && menu ? true : undefined"
+      aria-label="Menu principal"
+      @keydown="menuKeys"
+    >
       <RouterLink to="/" class="brand"
         ><span class="brand-icon"><Leaf :size="23" /></span
         ><span
@@ -132,12 +196,14 @@ async function logout() {
         <ThemeToggle />
       </div>
     </aside>
-    <div class="workspace">
+    <div class="workspace" :inert="mobile && menu">
       <header class="app-topbar">
         <div class="topbar-left">
           <button
             class="icon-button mobile-menu"
+            ref="menuButton"
             aria-label="Abrir menu"
+            aria-controls="navigation-menu"
             :aria-expanded="menu"
             @click="menu = true"
           >
