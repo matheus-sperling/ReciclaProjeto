@@ -9,6 +9,11 @@ export async function limitLogin(email: string) {
     "Muitas tentativas para esta conta. Aguarde 15 minutos.",
   );
 }
+export async function limitPasswordChange(userId: string, clientIp: string) {
+  const message = "Muitas tentativas de troca de senha. Aguarde 15 minutos.";
+  await limit("password-ip", clientIp, 32, message);
+  await limit("password-user", userId, 8, message);
+}
 async function limit(
   namespace: string,
   identity: string,

@@ -94,6 +94,72 @@ export const auth = () => (instance ??= buildAuth());
 export const resetAuth = () => {
   instance = undefined;
 };
+const mfaSessionPrefix = "recicla:mfa-session:";
+
+// A flag on the account cannot prove that a particular session passed MFA.
+// Keep that proof server-side, using the existing expiring verification store.
+export async function confirmMfaSession(headers: Headers, enrolled = false) {
+  const current = await auth().api.getSession({ headers });
+  if (!current)
+    throw new ApiError(401, "Entre novamente para continuar.", "AUTH_REQUIRED");
+  await authDb().$transaction(async (tx) => {
+    const session = await tx.session.findUnique({
+      where: { id: current.session.id },
+      include: { user: { include: { twoFactor: true } } },
+    });
+    if (
+      !session ||
+      session.expiresAt <= new Date() ||
+      !session.user.twoFactorEnabled ||
+      !session.user.twoFactor?.verified
+    )
+      throw new ApiError(
+        401,
+        "Entre novamente para continuar.",
+        "AUTH_REQUIRED",
+      );
+    if (enrolled) {
+      await tx.session.deleteMany({
+        where: { userId: session.userId, id: { not: session.id } },
+      });
+      await tx.verification.deleteMany({
+        where: {
+          identifier: { startsWith: mfaSessionPrefix },
+          value: { startsWith: session.userId + ":" },
+        },
+      });
+    } else {
+      await tx.verification.deleteMany({
+        where: { identifier: mfaSessionPrefix + session.id },
+      });
+    }
+    await tx.verification.create({
+      data: {
+        identifier: mfaSessionPrefix + session.id,
+        value: session.userId + ":" + session.user.twoFactor.id,
+        expiresAt: session.expiresAt,
+      },
+    });
+  });
+}
+
+export async function clearMfaSessions(headers: Headers) {
+  const current = await auth().api.getSession({ headers });
+  if (!current)
+    throw new ApiError(401, "Entre novamente para continuar.", "AUTH_REQUIRED");
+  await authDb().$transaction(async (tx) => {
+    await tx.session.deleteMany({
+      where: { userId: current.user.id, id: { not: current.session.id } },
+    });
+    await tx.verification.deleteMany({
+      where: {
+        identifier: { startsWith: mfaSessionPrefix },
+        value: { startsWith: current.user.id + ":" },
+      },
+    });
+  });
+}
+
 export async function principal(
   headers: Headers,
   allowPending = false,
@@ -103,7 +169,7 @@ export async function principal(
     throw new ApiError(401, "Entre novamente para continuar.", "AUTH_REQUIRED");
   const u = await authDb().user.findUnique({
     where: { id: session.user.id },
-    include: { municipio: true },
+    include: { municipio: true, twoFactor: { select: { id: true } } },
   });
   if (
     !u ||
@@ -114,6 +180,22 @@ export async function principal(
     throw new ApiError(
       401,
       "Sua conta ou município está indisponível.",
+      "AUTH_REQUIRED",
+    );
+  if (
+    u.twoFactorEnabled &&
+    !(await authDb().verification.findFirst({
+      where: {
+        identifier: mfaSessionPrefix + session.session.id,
+        value: u.id + ":" + (u.twoFactor?.id ?? ""),
+        expiresAt: { gt: new Date() },
+      },
+      select: { id: true },
+    }))
+  )
+    throw new ApiError(
+      401,
+      "Confirme o autenticador entrando novamente.",
       "AUTH_REQUIRED",
     );
   const user: User = {

@@ -1,6 +1,6 @@
 {
   "framework": "vite",
-  "buildCommand": "npm run build",
+  "buildCommand": "npm run check:release && npm run build",
   "outputDirectory": "dist",
   "functions": { "api/*.ts": { "maxDuration": 30 } },
   "rewrites": [

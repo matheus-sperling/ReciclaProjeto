@@ -41,15 +41,25 @@ No terminal protegido, configure `AUTH_DATABASE_URL`, `ADMIN_NAME`, `ADMIN_EMAIL
 
 Entre no sistema, substitua a senha temporária por uma senha pessoal e configure um aplicativo autenticador. Guarde os códigos de recuperação em local privado. Sem trocar a senha e confirmar TOTP o administrador não acessa municípios nem a operação. Crie o município e seu primeiro gestor em **Municípios → Abrir → Equipe**. Entregue a senha temporária do gestor por canal privado; a troca é obrigatória no primeiro acesso. Gestores podem criar os demais gestores e coletores de sua cidade.
 
+A senha pessoal deve ser diferente da atual, incluindo variantes Unicode que o provedor normaliza para o mesmo valor. A troca de senha é limitada por conta e IP antes de executar o hash. A confirmação de MFA é vinculada à sessão no servidor, com validade limitada à sessão confirmada; concluir a primeira configuração revoga as demais sessões. Sessões de contas com MFA anteriores à implantação dessa proteção precisam entrar novamente e apresentar o fator. Isso não exige migração, redefinição de senha nem novo cadastro do autenticador.
+
 ## Publicação na main
 
 Mantenha a integração GitHub → Vercel no repositório `matheus-sperling/ReciclaProjeto`, branch de produção `main`, preset Vite, Node 24. `vercel.json` define build, funções, rotas e cabeçalhos. As migrações não são executadas automaticamente pelo build: aplique-as uma vez com a credencial protegida antes de publicar o código correspondente.
 
+O comando de build da Vercel executa `npm run check:release` antes de compilar. Em Production, essa guarda consulta a API pública do GitHub e só libera o build quando a execução mais recente de `.github/workflows/quality.yml`, acionada por `push` na `main`, estiver concluída com sucesso para o SHA completo do próprio deployment. Aprovação de PR ou de outro commit não serve. Enquanto a CI está em execução, aguarda no máximo dez minutos. CI reprovada/cancelada/ignorada, metadados ausentes, erro de rede ou limite da API bloqueiam a publicação. Após corrigir a CI ou uma indisponibilidade, reexecute o deployment do commit aprovado. Builds locais e previews não aguardam esse check; `npm run build` continua independente para evitar dependência circular com a CI.
+
+A guarda não usa token nem banco de produção e depende de este repositório continuar público, das variáveis de sistema da Vercel estarem disponíveis e do acesso a `api.github.com`. O limite anônimo do GitHub é compartilhado pelo IP do build; não remova o bloqueio para contornar indisponibilidade. Ela ocupa minutos do build enquanto aguarda e protege os deployments que executam o `buildCommand` versionado. Uma promoção manual, um deployment `--prebuilt` ou alterações nesse comando podem contorná-la e exigem conferência operacional do SHA e da CI.
+
+Como proteção adicional da plataforma, configure **Settings → Build and Deployment → Deployment Checks → Add Checks → GitHub → `quality`** no projeto Vercel e mantenha a atribuição automática dos domínios Production ligada. Isso segura a promoção até o resultado do check no commit implantado, sem tokens adicionais; não use **Force Promote** para ignorá-lo. Consulte a [documentação de Deployment Checks](https://vercel.com/docs/deployment-checks). A proteção da `main` no GitHub também deve exigir `quality` antes de merge e impedir force-push; sozinha, ela não substitui a conferência do commit efetivamente publicado. Essas opções são configurações administrativas externas ao repositório e precisam ser confirmadas no painel; a presença deste roteiro não significa que estejam ativadas.
+
 1. Configure banco/roles/variáveis e crie o administrador.
-2. Execute as verificações automatizadas em banco descartável; confirme GitHub Actions verde.
-3. Confira a implantação Vercel da `main` e execute o roteiro de dois municípios.
+2. Execute `npm run typecheck`, `npm run check:api`, os testes com PostgreSQL descartável, `npm audit --audit-level=high`, `npm run build` e `npm run test:browser`; confirme a execução `push/main` do GitHub Actions verde no SHA que será publicado.
+3. Confira a implantação Vercel desse mesmo SHA na `main`, a liberação da guarda de publicação nos logs e execute o roteiro de dois municípios.
 4. Valide câmera em celular real via HTTPS e fila offline com reconexão.
 5. Depois da nova persistência validada, remova variáveis e integração Blob do projeto Vercel. Não há mais código que dependa do Blob.
+
+Os testes de layout usam imagens de mapa locais para não depender da disponibilidade dos servidores de tiles; exercitam os controles, coordenadas, cadastros e permissões reais da aplicação. A disponibilidade e a aparência do mapa remoto devem ser conferidas no roteiro de produção.
 
 ## Backups e restauração
 
@@ -77,6 +87,8 @@ O administrador pode **excluir contas de gestores e coletores** em **Municípios
 
 Abra **Coletor** conectado e aguarde “Pronto para coleta offline”. Essa indicação depende de catálogo disponível e confirmação de todos os arquivos públicos no service worker. O mapa remoto não fica disponível offline. APIs e respostas com dados pessoais nunca entram no cache do service worker.
 
-O catálogo municipal e a fila temporária ficam no navegador, separados por conta e município, sem senhas ou tokens. Use dispositivos protegidos. Ao sair, os dados exibidos e o catálogo são apagados; pendências ficam preservadas para a conta original. Não limpe o armazenamento do navegador antes de sincronizar ou exportar pendências. Liberação de espaço, corrupção de armazenamento, rejeições e sessão expirada mantêm registros na fila. Alterações de permissão são reconhecidas ao reconectar. Sincronização exige aplicativo aberto.
+O catálogo municipal e a fila temporária ficam no navegador, separados por conta e município, sem senhas ou tokens. Use dispositivos protegidos. **Sair da conta** bloqueia o acesso local imediatamente, inclusive sem internet, apaga os catálogos, recibos e identidade desse perfil de navegador e preserva as pendências de cada conta. O bloqueio persiste após recarregar ou reconectar; a sessão remota é revogada quando houver conexão, antes de permitir um novo login explícito. Se o navegador não conseguir persistir o bloqueio, o aplicativo informa o erro e não apresenta a saída como concluída. Não limpe o armazenamento do navegador antes de sincronizar ou exportar pendências.
+
+O acesso offline precisa ser renovado com a sessão e o catálogo verificados pelo servidor pelo menos a cada 24 horas. Recarregar sem rede não renova esse prazo. Quando o acesso expira, conecte-se para renová-lo; as pendências continuam preservadas para a conta original. Esse bloqueio da interface não cifra os arquivos locais nem protege contra acesso direto ao perfil do navegador; mantenha proteção de tela e armazenamento do dispositivo. Liberação de espaço, corrupção de armazenamento, rejeições e sessão expirada mantêm registros na fila. Alterações de permissão são reconhecidas ao reconectar. Sincronização exige aplicativo aberto.
 
 Administradores podem desativar cidades e consultar seu histórico. Gestores podem desativar/remover contas; sessões são revogadas e vínculos históricos preservados. A remoção da própria conta e do último gestor ativo é bloqueada, inclusive sob concorrência.

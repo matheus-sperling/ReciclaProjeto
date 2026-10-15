@@ -10,7 +10,15 @@ import {
   EyeOff,
   KeyRound,
 } from "lucide-vue-next";
-import { authClient, authError, request, session } from "../lib/api";
+import {
+  ApiError,
+  authenticate,
+  authClient,
+  authError,
+  flushPendingLogout,
+  request,
+  session,
+} from "../lib/api";
 import { activationRequest, type ActivationStatus } from "../lib/activation";
 const activationAvailable = ref(false);
 const email = ref(""),
@@ -25,7 +33,11 @@ const email = ref(""),
   checking = ref(true);
 const router = useRouter(),
   route = useRoute();
+let signInLock: { value: string | null } | undefined;
 onMounted(async () => {
+  void flushPendingLogout().catch((e: Error) => {
+    error.value = e.message;
+  });
   try {
     configured.value = (
       await request<{ configured: boolean }>("status", { scope: false })
@@ -37,11 +49,13 @@ onMounted(async () => {
   } catch (e) {
     error.value = e instanceof Error ? e.message : "Servidor indisponível.";
   } finally {
+    if (route.query.reason === "offline-expired")
+      error.value = "Conecte-se para renovar o acesso offline.";
     checking.value = false;
   }
 });
 async function finish() {
-  const u = await session();
+  const u = await session(signInLock);
   password.value = "";
   code.value = "";
   const redirect =
@@ -62,30 +76,47 @@ async function submit() {
   busy.value = true;
   error.value = "";
   try {
-    if (factor.value) {
-      const result = recovery.value
-        ? await authClient.twoFactor.verifyBackupCode({
-            code: code.value,
-            trustDevice: false,
-          })
-        : await authClient.twoFactor.verifyTotp({
-            code: code.value,
-            trustDevice: false,
-          });
-      if (result.error) throw new Error(authError(result.error));
-      await finish();
-    } else {
-      const result = await authClient.signIn.email({
-        email: email.value.trim(),
-        password: password.value,
-      });
-      if (result.error) throw new Error(authError(result.error));
-      if ((result.data as { twoFactorRedirect?: boolean })?.twoFactorRedirect) {
-        factor.value = true;
-        password.value = "";
-      } else await finish();
-    }
+    await authenticate(async (lock) => {
+      if (factor.value && signInLock?.value !== lock.value)
+        throw new ApiError(
+          "O dispositivo foi bloqueado. Entre novamente.",
+          401,
+          "DEVICE_LOCKED",
+        );
+      if (!factor.value) signInLock = lock;
+      if (factor.value) {
+        const result = recovery.value
+          ? await authClient.twoFactor.verifyBackupCode({
+              code: code.value,
+              trustDevice: false,
+            })
+          : await authClient.twoFactor.verifyTotp({
+              code: code.value,
+              trustDevice: false,
+            });
+        if (result.error) throw new Error(authError(result.error));
+        await finish();
+      } else {
+        const result = await authClient.signIn.email({
+          email: email.value.trim(),
+          password: password.value,
+        });
+        if (result.error) throw new Error(authError(result.error));
+        if (
+          (result.data as { twoFactorRedirect?: boolean })?.twoFactorRedirect
+        ) {
+          factor.value = true;
+          password.value = "";
+        } else await finish();
+      }
+    });
   } catch (e) {
+    if (e instanceof ApiError && e.code === "DEVICE_LOCKED") {
+      factor.value = false;
+      code.value = "";
+      password.value = "";
+      signInLock = undefined;
+    }
     error.value = e instanceof Error ? e.message : "Não foi possível entrar.";
   } finally {
     busy.value = false;

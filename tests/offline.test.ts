@@ -1,4 +1,4 @@
-import { beforeEach, describe, it, expect, vi } from "vitest";
+import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
 import { ids, actor } from "./fixture";
 import type { Entrega } from "../shared/contracts";
 const { send } = vi.hoisted(() => ({ send: vi.fn() }));
@@ -9,10 +9,21 @@ import {
   cacheCollector,
   enqueue,
   logoutOffline,
+  offlineAccessExpired,
+  offlineAccessLifetime,
   pending,
   readLocal,
+  restoreOfflineUser,
   synchronize,
 } from "../src/lib/offline";
+import {
+  beginDeviceLock,
+  confirmDeviceLogout,
+  deviceLock,
+  deviceLockKey,
+  deviceUnlockedKey,
+  unlockDevice,
+} from "../src/lib/device-lock";
 class MemoryStorage implements Storage {
   map = new Map<string, string>();
   fail = "";
@@ -66,6 +77,7 @@ beforeEach(() => {
   });
   send.mockReset();
 });
+afterEach(() => vi.useRealTimers());
 describe("Fila offline", () => {
   it("separa as contas e preserva pendências ao sair", async () => {
     const record = delivery();
@@ -129,5 +141,106 @@ describe("Fila offline", () => {
     await synchronize(user);
     expect(pending(user)).toEqual([]);
     expect(readLocal<Entrega[]>(user, "receipts", [])[0].id).toBe(record.id);
+  });
+  it("bloqueia o dispositivo sem rede, limpa catálogos/recibos e preserva todas as filas", async () => {
+    const record = delivery();
+    await enqueue(user, record);
+    cacheCollector(user, {
+      municipio: user.municipio!,
+      moradores: [],
+      pontos: [],
+      materiais: [],
+      atualizadoEm: new Date().toISOString(),
+    });
+    storage.setItem(accountKey(user) + "receipts", JSON.stringify([record]));
+    storage.setItem(accountKey(other) + "catalog", "{}");
+    storage.setItem(accountKey(other) + "outbox", "[]");
+    vi.stubGlobal("navigator", { onLine: false, locks: navigator.locks });
+    const marker = beginDeviceLock();
+    expect(deviceLock()).toBe(marker);
+    expect(restoreOfflineUser()).toBeNull();
+    expect(storage.getItem("recicla-current-collector-v1")).toBeNull();
+    expect(readLocal(user, "catalog", null)).toBeNull();
+    expect(readLocal(user, "receipts", null)).toBeNull();
+    expect(readLocal(other, "catalog", null)).toBeNull();
+    expect(storage.getItem(accountKey(other) + "outbox")).toBe("[]");
+    expect(pending(user)).toEqual([record]);
+    await expect(enqueue(user, delivery())).rejects.toThrow(/Entre novamente/);
+    await expect(acknowledge(user, record)).rejects.toThrow(/bloqueado/);
+  });
+  it("continua bloqueado após revogar a sessão e exige um novo login sem sobrescrever bloqueios mais recentes", () => {
+    const first = beginDeviceLock();
+    const current = beginDeviceLock();
+    confirmDeviceLogout(first);
+    expect(deviceLock()).toBe(current);
+    confirmDeviceLogout(current);
+    expect(deviceLock()).toBe(current.replace("pending:", "signed-out:"));
+    expect(() => unlockDevice(first)).toThrow(/bloqueado/);
+    unlockDevice(deviceLock());
+    expect(deviceLock()).toBeNull();
+  });
+  it("um logout em outra aba durante o desbloqueio não pode ser apagado por um login anterior", () => {
+    const first = beginDeviceLock();
+    confirmDeviceLogout(first);
+    const verified = deviceLock();
+    let newer = "";
+    const racedStorage = new Proxy(storage, {
+      get(target, property) {
+        if (property === "setItem")
+          return (key: string, value: string) => {
+            if (key === deviceUnlockedKey) newer = beginDeviceLock(target);
+            target.setItem(key, value);
+          };
+        const value = Reflect.get(target, property);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    unlockDevice(verified, racedStorage);
+    expect(deviceLock()).toBe(newer);
+    expect(deviceLock()).toMatch(/^pending:/);
+    expect(restoreOfflineUser()).toBeNull();
+  });
+  it("falha ao persistir o bloqueio não apaga dados nem simula uma saída concluída", async () => {
+    await enqueue(user, delivery());
+    cacheCollector(user, {
+      municipio: user.municipio!,
+      moradores: [],
+      pontos: [],
+      materiais: [],
+      atualizadoEm: new Date().toISOString(),
+    });
+    const before = [...storage.map.entries()];
+    storage.fail = deviceLockKey;
+    expect(() => beginDeviceLock()).toThrow(/Não foi possível bloquear/);
+    expect([...storage.map.entries()]).toEqual(before);
+    expect(restoreOfflineUser()?.id).toBe(user.id);
+  });
+  it("o acesso offline expira após 24h e reloads não renovam o prazo ou apagam pendências", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-15T00:00:00Z"));
+    const record = delivery();
+    await enqueue(user, record);
+    const catalog = {
+      municipio: user.municipio!,
+      moradores: [],
+      pontos: [],
+      materiais: [],
+      atualizadoEm: new Date().toISOString(),
+    };
+    cacheCollector(user, catalog);
+    const identity = storage.getItem("recicla-current-collector-v1");
+    vi.advanceTimersByTime(offlineAccessLifetime - 1);
+    expect(restoreOfflineUser()?.id).toBe(user.id);
+    expect(offlineAccessExpired()).toBe(false);
+    expect(storage.getItem("recicla-current-collector-v1")).toBe(identity);
+    vi.advanceTimersByTime(1);
+    expect(restoreOfflineUser()).toBeNull();
+    expect(offlineAccessExpired()).toBe(true);
+    expect(pending(user)).toEqual([record]);
+    // onLine can stay true while the API is unreachable; it cannot renew access.
+    await expect(enqueue(user, delivery())).rejects.toThrow(/renovar/);
+    expect(pending(user)).toEqual([record]);
+    cacheCollector(user, catalog);
+    expect(restoreOfflineUser()?.id).toBe(user.id);
   });
 });

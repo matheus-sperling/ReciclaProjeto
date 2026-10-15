@@ -1,7 +1,9 @@
 import type { Catalogo, Entrega, User } from "../../shared/contracts";
 import { entregaSchema } from "../../shared/validation";
 import { request } from "./api";
-const identityKey = "recicla-current-collector-v1";
+import { collectorIdentityKey as identityKey, deviceLock } from "./device-lock";
+export const offlineAccessLifetime = 24 * 60 * 60 * 1000;
+type OfflineIdentity = User & { offlineVerifiedAt: number };
 export const accountKey = (user: Pick<User, "id" | "municipioId">) =>
   `recicla-v3:${user.municipioId}:${user.id}:`;
 export function readLocal<T>(
@@ -74,6 +76,10 @@ export async function enqueue(user: User, record: Entrega) {
   if (record.coletorId !== user.id || record.municipioId !== user.municipioId)
     throw new Error("Conta ou município da entrega inválido.");
   await queueLock(user, async () => {
+    if (deviceLock())
+      throw new Error("Entre novamente para registrar entregas.");
+    if (offlineAccessExpired())
+      throw new Error("Conecte-se para renovar o acesso offline.");
     const rows = pending(user);
     if (rows.some((r) => r.id === record.id)) return;
     if (rows.length >= 500)
@@ -99,6 +105,10 @@ export async function acknowledge(user: User, record: Entrega) {
   if (record.coletorId !== user.id || record.municipioId !== user.municipioId)
     throw new Error("O recibo pertence a outra conta.");
   await queueLock(user, async () => {
+    if (deviceLock())
+      throw new Error(
+        "O dispositivo foi bloqueado. A entrega continua pendente.",
+      );
     const receipts = readLocal<Entrega[]>(user, "receipts", []);
     writeLocal(
       user,
@@ -163,24 +173,47 @@ export async function synchronize(user: User) {
   }
 }
 export function cacheCollector(user: User, catalog: Catalogo) {
+  if (deviceLock())
+    throw new Error("Entre novamente para atualizar o catálogo.");
   if (
     user.role === "administrador" ||
     catalog.municipio.id !== user.municipioId
   )
     throw new Error("Catálogo de outro município.");
   writeLocal(user, "catalog", catalog);
-  localStorage.setItem(identityKey, JSON.stringify(user));
+  localStorage.setItem(
+    identityKey,
+    JSON.stringify({ ...user, offlineVerifiedAt: Date.now() }),
+  );
+}
+function expiredIdentity(user: OfflineIdentity) {
+  return (
+    !Number.isFinite(user.offlineVerifiedAt) ||
+    user.offlineVerifiedAt > Date.now() ||
+    Date.now() - user.offlineVerifiedAt >= offlineAccessLifetime
+  );
+}
+export function offlineAccessExpired() {
+  try {
+    if (deviceLock()) return false;
+    const raw = localStorage.getItem(identityKey);
+    return !!raw && expiredIdentity(JSON.parse(raw) as OfflineIdentity);
+  } catch {
+    return false;
+  }
 }
 export function restoreOfflineUser(): User | null {
   try {
+    if (deviceLock()) return null;
     const raw = localStorage.getItem(identityKey);
     if (!raw) return null;
-    const u = JSON.parse(raw) as User;
+    const u = JSON.parse(raw) as OfflineIdentity;
     if (
       !["gestor", "coletor"].includes(u.role) ||
       !u.id ||
       !u.municipioId ||
-      u.mustChangePassword
+      u.mustChangePassword ||
+      expiredIdentity(u)
     )
       return null;
     const catalog = readLocal<Catalogo | null>(u, "catalog", null);

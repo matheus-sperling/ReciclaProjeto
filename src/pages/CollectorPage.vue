@@ -18,9 +18,9 @@ import { Html5Qrcode } from "html5-qrcode";
 import type { Catalogo, Entrega, Morador } from "../../shared/contracts";
 import { lerQr, pesoGramas, uuid } from "../../shared/validation";
 import {
-  authClient,
-  authError,
   clearContext,
+  flushPendingLogout,
+  lockCurrentDevice,
   request,
   session,
   state,
@@ -32,11 +32,12 @@ import {
   downloadJson,
   enqueue,
   history,
-  logoutOffline,
+  offlineAccessExpired,
   pending,
   readLocal,
   synchronize,
 } from "../lib/offline";
+import { deviceLock } from "../lib/device-lock";
 import UiDialog from "../components/UiDialog.vue";
 import PageState from "../components/PageState.vue";
 import ThemeToggle from "../components/ThemeToggle.vue";
@@ -82,6 +83,12 @@ const queue = computed(() => rows.value.filter((r) => r.status === "pendente")),
       cameraStarting.value,
   );
 function local() {
+  if (deviceLock()) {
+    rows.value = [];
+    remoteRows.value = [];
+    catalog.value = null;
+    return;
+  }
   try {
     const merged = new Map(
       [...remoteRows.value, ...history(user)].map((r) => [r.id, r]),
@@ -186,6 +193,48 @@ async function startCamera() {
     cameraStarting.value = false;
   }
 }
+async function readQrImage(file: File) {
+  try {
+    return await scanner!.scanFile(file, false);
+  } catch (originalError) {
+    // ZXing sometimes selects a false alignment pattern in a valid QR. Read
+    // the same image in other orientations before rejecting an existing card.
+    const source = await createImageBitmap(file);
+    const canvas = document.createElement("canvas");
+    try {
+      for (const turns of [1, 2, 3]) {
+        canvas.width = turns % 2 ? source.height : source.width;
+        canvas.height = turns % 2 ? source.width : source.height;
+        const context = canvas.getContext("2d");
+        if (!context) throw originalError;
+        context.fillStyle = "white";
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        context.translate(canvas.width / 2, canvas.height / 2);
+        context.rotate((turns * Math.PI) / 2);
+        context.drawImage(source, -source.width / 2, -source.height / 2);
+        const blob = await new Promise<Blob>((resolve, reject) =>
+          canvas.toBlob(
+            (result) => (result ? resolve(result) : reject(originalError)),
+            "image/png",
+          ),
+        );
+        try {
+          return await scanner!.scanFile(
+            new File([blob], file.name, { type: "image/png" }),
+            false,
+          );
+        } catch {
+          // Try the next orientation with the same reader and payload.
+        }
+      }
+      throw originalError;
+    } finally {
+      source.close();
+      canvas.width = 0;
+      canvas.height = 0;
+    }
+  }
+}
 async function image(event: Event) {
   const input = event.target as HTMLInputElement,
     file = input.files?.[0];
@@ -194,7 +243,7 @@ async function image(event: Event) {
   try {
     await stop();
     scanner ??= new Html5Qrcode("recicla-scanner");
-    await identify(await scanner.scanFile(file, false));
+    await identify(await readQrImage(file));
   } catch {
     error.value =
       "Não encontramos um QR válido nesta imagem. Tente uma foto mais nítida.";
@@ -205,6 +254,8 @@ async function image(event: Event) {
 function prepare() {
   error.value = "";
   try {
+    if (offlineAccessExpired())
+      throw new Error("Conecte-se para renovar o acesso offline.");
     if (!catalog.value || !resident.value)
       throw new Error("Leia o QR ou informe o código do morador.");
     const p = catalog.value.pontos.find((p) => p.id === point.value && p.ativo),
@@ -326,22 +377,36 @@ function connectivity() {
     void sync();
   } else void checkOffline();
 }
+async function expireOfflineAccess() {
+  catalog.value = null;
+  rows.value = [];
+  remoteRows.value = [];
+  resident.value = null;
+  review.value = null;
+  weight.value = "";
+  manual.value = "";
+  state.user = null;
+  clearContext();
+  await stop();
+  await router.replace({
+    path: "/entrar",
+    query: { redirect: "/coletor", reason: "offline-expired" },
+  });
+}
 async function logout() {
   saving.value = true;
   try {
-    const result = await authClient.signOut();
-    if (result.error) throw new Error(authError(result.error));
-    await stop();
-    logoutOffline(user);
+    lockCurrentDevice();
     catalog.value = null;
     rows.value = [];
+    remoteRows.value = [];
     review.value = null;
     resident.value = null;
     weight.value = "";
     manual.value = "";
-    state.user = null;
-    clearContext();
     exit.value = false;
+    void flushPendingLogout().catch(() => {});
+    await stop();
     await router.replace("/entrar");
   } catch (e) {
     error.value = (e as Error).message;
@@ -415,6 +480,10 @@ onMounted(async () => {
   window.addEventListener("storage", local);
   window.addEventListener("beforeunload", beforeUnload);
   timer = setInterval(() => {
+    if (offlineAccessExpired() && !syncing.value) {
+      void expireOfflineAccess();
+      return;
+    }
     if (online.value && !document.hidden && !dirty.value) void sync();
   }, 30000);
 });
@@ -670,6 +739,7 @@ onBeforeUnmount(() => {
         <p class="hint" style="margin-top: 15px">
           Catálogo atualizado em {{ dateTime(catalog.atualizadoEm) }}.
           Alterações de acesso e cadastros são reconhecidas após reconectar.
+          Conecte-se pelo menos a cada 24 horas para renovar o acesso offline.
         </p></template
       ><template v-if="tab !== 'nova'"
         ><div class="history-heading">
@@ -791,16 +861,13 @@ onBeforeUnmount(() => {
         }}
       </p>
       <p v-if="!online" class="alert warning">
-        Conecte-se para encerrar sua sessão no servidor.
+        O acesso neste dispositivo será bloqueado agora. A sessão no servidor
+        será encerrada ao reconectar; será preciso entrar novamente.
       </p>
       <div class="form-actions">
         <button class="button secondary" @click="exit = false">
           Continuar coletando</button
-        ><button
-          class="button primary"
-          :disabled="saving || !online"
-          @click="logout"
-        >
+        ><button class="button primary" :disabled="saving" @click="logout">
           Sair da conta
         </button>
       </div></UiDialog
