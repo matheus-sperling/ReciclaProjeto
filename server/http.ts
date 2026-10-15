@@ -1,11 +1,16 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { z } from "zod";
-import { auth, principal } from "./auth.js";
+import {
+  auth,
+  clearMfaSessions,
+  confirmMfaSession,
+  principal,
+} from "./auth.js";
 import { appDb, authDb, verifyRuntimeRoles } from "./db.js";
 import { createDomain } from "./domain.js";
 import { ApiError } from "./errors.js";
 import { senha } from "../shared/validation.js";
-import { limitLogin } from "./limits.js";
+import { limitLogin, limitPasswordChange } from "./limits.js";
 import { activateAdministrator, setupStatus } from "./bootstrap.js";
 
 const allowedAuth = new Set([
@@ -80,7 +85,10 @@ async function bodyObject(request: Request) {
     throw new ApiError(400, "Dados inválidos.");
   return value as Record<string, unknown>;
 }
-export async function domainHandler(request: Request): Promise<Response> {
+export async function domainHandler(
+  request: Request,
+  clientIp = "unknown",
+): Promise<Response> {
   try {
     const url = new URL(request.url),
       action = url.searchParams.get("action") || "";
@@ -102,9 +110,19 @@ export async function domainHandler(request: Request): Promise<Response> {
       return json({ user: actor });
     const body = request.method === "GET" ? {} : await bodyObject(request);
     if (action === "trocarSenha" && request.method === "POST") {
+      await limitPasswordChange(actor.id, clientIp);
       const input = z
         .object({ senhaAtual: z.string().max(128), novaSenha: senha })
         .strict()
+        .refine(
+          (value) =>
+            value.senhaAtual.normalize("NFKC") !==
+            value.novaSenha.normalize("NFKC"),
+          {
+            path: ["novaSenha"],
+            message: "A nova senha deve ser diferente da senha atual.",
+          },
+        )
         .parse(body);
       const result = await auth().api.changePassword({
         headers: request.headers,
@@ -116,6 +134,10 @@ export async function domainHandler(request: Request): Promise<Response> {
         asResponse: true,
       });
       if (!result.ok) return sanitizedAuth(result);
+      if (actor.twoFactorEnabled)
+        await confirmMfaSession(
+          responseSessionHeaders(request.headers, result),
+        );
       await authDb().user.update({
         where: { id: actor.id },
         data: { mustChangePassword: false },
@@ -137,6 +159,32 @@ export async function domainHandler(request: Request): Promise<Response> {
   } catch (error) {
     return errorResponse(error);
   }
+}
+function responseSessionHeaders(requestHeaders: Headers, response: Response) {
+  const headers = new Headers(requestHeaders);
+  const cookies = new Map(
+    (headers.get("cookie") || "")
+      .split(";")
+      .filter((value) => value.includes("="))
+      .map((value) => {
+        const separator = value.indexOf("=");
+        return [
+          value.slice(0, separator).trim(),
+          value.slice(separator + 1),
+        ] as const;
+      }),
+  );
+  for (const cookie of response.headers.getSetCookie()) {
+    const first = cookie.split(";")[0],
+      separator = first.indexOf("=");
+    if (separator > 0)
+      cookies.set(first.slice(0, separator), first.slice(separator + 1));
+  }
+  headers.set(
+    "cookie",
+    [...cookies].map(([name, value]) => `${name}=${value}`).join("; "),
+  );
+  return headers;
 }
 async function sanitizedAuth(response: Response) {
   const headers = new Headers(response.headers);
@@ -205,18 +253,32 @@ export async function authHandler(
     }
     // Device trust is deliberately disabled: each login requires the configured factor.
     if ("trustDevice" in body) body.trustDevice = false;
+    if (path === "two-factor/verify-backup-code") body.disableSession = false;
+    const verifyingFactor = [
+      "two-factor/verify-totp",
+      "two-factor/verify-backup-code",
+    ].includes(path);
+    const beforeFactor = verifyingFactor
+      ? await auth().api.getSession({ headers: request.headers })
+      : null;
     const headers = new Headers(request.headers);
     headers.set("x-recicla-client-ip", clientIp);
     headers.delete("content-length");
-    return sanitizedAuth(
-      await auth().handler(
-        new Request(request.url, {
-          method: request.method,
-          headers,
-          body: JSON.stringify(body),
-        }),
-      ),
+    const response = await auth().handler(
+      new Request(request.url, {
+        method: request.method,
+        headers,
+        body: JSON.stringify(body),
+      }),
     );
+    if (response.ok && verifyingFactor)
+      await confirmMfaSession(
+        responseSessionHeaders(request.headers, response),
+        Boolean(beforeFactor && !beforeFactor.user.twoFactorEnabled),
+      );
+    if (response.ok && path === "two-factor/disable")
+      await clearMfaSessions(responseSessionHeaders(request.headers, response));
+    return sanitizedAuth(response);
   } catch (error) {
     return errorResponse(error);
   }
@@ -284,7 +346,7 @@ export async function handleNode(
       res,
       await (isAuth
         ? authHandler(request, forwarded.split(",")[0].trim())
-        : domainHandler(request)),
+        : domainHandler(request, forwarded.split(",")[0].trim())),
     );
   } catch (error) {
     await sendResponse(res, errorResponse(error));

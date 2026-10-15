@@ -124,6 +124,16 @@ for (const viewport of [
         isMobile: viewport.width < 700,
         hasTouch: viewport.width < 700,
       });
+      // These checks exercise our Leaflet controls and layout. Keep base tiles
+      // local: pending third-party downloads can stall trace/context teardown.
+      await context.route(
+        /^https:\/\/[abc]\.tile\.openstreetmap\.org\/\d+\/\d+\/\d+\.png$/,
+        (route) =>
+          route.fulfill({
+            contentType: "image/svg+xml",
+            body: '<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256"><path fill="#e2e8e3" d="M0 0h256v256H0z"/><path stroke="#c8d5cb" d="M0 128h256M128 0v256"/></svg>',
+          }),
+      );
       await context.addInitScript(
         (value) => localStorage.setItem("recicla-theme", value),
         theme,

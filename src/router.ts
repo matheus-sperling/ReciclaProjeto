@@ -1,6 +1,6 @@
 import { createRouter, createWebHistory } from "vue-router";
 import { session, state, ApiError } from "./lib/api";
-import { restoreOfflineUser } from "./lib/offline";
+import { offlineAccessExpired, restoreOfflineUser } from "./lib/offline";
 export const router = createRouter({
   history: createWebHistory(),
   scrollBehavior: (_to, _from, savedPosition) => savedPosition || { top: 0 },
@@ -90,7 +90,19 @@ router.beforeEach(async (to) => {
       if (offline) {
         state.user = offline;
         state.municipio = offline.municipio;
-      } else return { path: "/entrar", query: { redirect: to.path } };
+      } else
+        return {
+          path: "/entrar",
+          query: {
+            redirect: to.path,
+            ...(to.path === "/coletor" &&
+            error instanceof ApiError &&
+            error.status === 0 &&
+            offlineAccessExpired()
+              ? { reason: "offline-expired" }
+              : {}),
+          },
+        };
     }
   }
   state.checking = false;

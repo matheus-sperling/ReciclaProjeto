@@ -22,8 +22,7 @@ import {
   X,
   ChevronRight,
 } from "lucide-vue-next";
-import { authClient, clearContext, state, authError } from "./lib/api";
-import { logoutOffline } from "./lib/offline";
+import { flushPendingLogout, lockCurrentDevice, state } from "./lib/api";
 import { roleLabel } from "../shared/contracts";
 import ThemeToggle from "./components/ThemeToggle.vue";
 const route = useRoute(),
@@ -118,12 +117,8 @@ async function logout() {
   leaving.value = true;
   error.value = "";
   try {
-    const result = await authClient.signOut();
-    if (result.error) throw new Error(authError(result.error));
-    if (state.user) logoutOffline(state.user);
-    state.user = null;
-    clearContext();
-    sessionStorage.removeItem("recicla-municipio");
+    lockCurrentDevice();
+    void flushPendingLogout().catch(() => {});
     await router.push("/entrar");
   } catch (e) {
     error.value = e instanceof Error ? e.message : "Não foi possível sair.";

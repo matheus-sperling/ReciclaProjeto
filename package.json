@@ -13,6 +13,7 @@
     "preview": "vite preview --host 127.0.0.1",
     "typecheck": "vue-tsc --noEmit && tsc -p tsconfig.server.json --noEmit",
     "check:api": "node scripts/check-runtime.mjs",
+    "check:release": "node --import tsx scripts/check-release.ts",
     "test": "vitest run",
     "test:browser": "playwright test",
     "db:generate": "prisma generate",
