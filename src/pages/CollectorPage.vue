@@ -453,6 +453,22 @@ onBeforeRouteLeave(() => {
   }
 });
 onMounted(async () => {
+  // Cached offline readiness can be reported before initialization finishes.
+  // Listen immediately so a connection change or expiry cannot be missed
+  // while registration/catalog requests are still pending.
+  window.addEventListener("online", connectivity);
+  window.addEventListener("offline", connectivity);
+  window.addEventListener("recicla-data", local);
+  window.addEventListener("storage", local);
+  window.addEventListener("beforeunload", beforeUnload);
+  timer = setInterval(() => {
+    if (offlineAccessExpired() && !syncing.value) {
+      void expireOfflineAccess();
+      return;
+    }
+    if (loading.value) return;
+    if (online.value && !document.hidden && !dirty.value) void sync();
+  }, 30000);
   try {
     catalog.value = readLocal<Catalogo | null>(user, "catalog", null);
     if (catalog.value?.municipio.id !== user.municipioId) catalog.value = null;
@@ -474,18 +490,6 @@ onMounted(async () => {
   } finally {
     loading.value = false;
   }
-  window.addEventListener("online", connectivity);
-  window.addEventListener("offline", connectivity);
-  window.addEventListener("recicla-data", local);
-  window.addEventListener("storage", local);
-  window.addEventListener("beforeunload", beforeUnload);
-  timer = setInterval(() => {
-    if (offlineAccessExpired() && !syncing.value) {
-      void expireOfflineAccess();
-      return;
-    }
-    if (online.value && !document.hidden && !dirty.value) void sync();
-  }, 30000);
 });
 onBeforeUnmount(() => {
   clearInterval(timer);

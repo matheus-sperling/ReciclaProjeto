@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from "vue-router";
+import LoginPage from "./pages/LoginPage.vue";
 import { session, state, ApiError } from "./lib/api";
 import { offlineAccessExpired, restoreOfflineUser } from "./lib/offline";
 export const router = createRouter({
@@ -16,7 +17,9 @@ export const router = createRouter({
     },
     {
       path: "/entrar",
-      component: () => import("./pages/LoginPage.vue"),
+      // Logout/expiry must render without fetching a new chunk, even before
+      // the collector's service worker finishes preparing offline files.
+      component: LoginPage,
       meta: { public: true, title: "Acesse sua conta" },
     },
     {
