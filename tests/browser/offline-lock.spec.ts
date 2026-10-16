@@ -21,6 +21,11 @@ async function login(page: Page, email: string) {
   await expect(
     page.getByText("Pronto para coleta offline", { exact: true }),
   ).toBeVisible();
+  // The worker can confirm cached files before the catalog refresh finishes.
+  // Wait for mounted initialization, including expiry/connection monitoring.
+  await expect(
+    page.getByRole("heading", { name: "Identifique o morador", exact: true }),
+  ).toBeVisible();
 }
 
 async function seedPending(page: Page) {
@@ -200,4 +205,39 @@ test("24h sem verificação expiram o acesso offline sem renovar no reload ou ap
       ownerKey,
     ),
   ).toBe(queue);
+});
+
+test("expiração e mudança de conexão são reconhecidas durante a inicialização do catálogo", async ({
+  page,
+  context,
+}) => {
+  await page.clock.install();
+  const waiting = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  await page.route("**/api/recicla?**", async (route) => {
+    const action = new URL(route.request().url()).searchParams.get("action");
+    if (action === "session") return route.fulfill({ json: { user: owner } });
+    if (action !== "catalogo") return route.continue();
+    waiting.resolve();
+    await release.promise;
+    await route.abort().catch(() => {});
+  });
+  await page.addInitScript((user) => {
+    delete (Navigator.prototype as { serviceWorker?: unknown }).serviceWorker;
+    localStorage.setItem(
+      "recicla-current-collector-v1",
+      JSON.stringify({ ...user, offlineVerifiedAt: Date.now() }),
+    );
+  }, owner);
+  try {
+    await page.goto("/coletor");
+    await waiting.promise;
+    await expect(page.getByText("Carregando informações")).toBeVisible();
+    await context.setOffline(true);
+    await expect(page.getByText("Sem conexão", { exact: true })).toBeVisible();
+    await page.clock.fastForward(24 * 60 * 60 * 1000 + 31000);
+    await expect(page).toHaveURL(/\/entrar\?.*reason=offline-expired/);
+  } finally {
+    release.resolve();
+  }
 });
